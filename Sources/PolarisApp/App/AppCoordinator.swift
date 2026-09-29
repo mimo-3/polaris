@@ -15,11 +15,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let store = PolarisStore()
-        let initial: AppState
-        var failed = false
-        do { initial = try store.read() } catch { initial = NoteModel.placeholderState(); failed = true }
-        model = NoteModel(state: initial, store: store)
+        // 最初の状態は監視の初回通知（別キュー）で入る。ここで同期的に読むと、MCP の書き込み中に起動が止まる。
+        model = NoteModel(state: NoteModel.placeholderState(), store: PolarisStore())
         model.theme = .current()
         note = NotePanelController(model: model)
 
@@ -37,8 +34,6 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
 
         note.show()
         model.startObserving()
-        if failed { model.show(.error(Copy.loadFailed)) }
-        showMorningIfNeeded()
     }
 
     private func wireModel() {

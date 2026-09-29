@@ -59,7 +59,8 @@ final class NoteModel {
     @ObservationIgnored private var hoverTimer: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private var transientTimer: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private var detourTimer: _Concurrency.Task<Void, Never>?
-    @ObservationIgnored private var clock: _Concurrency.Task<Void, Never>?
+    @ObservationIgnored private var observation: _Concurrency.Task<Void, Never>?
+    @ObservationIgnored private var bannerTimer: _Concurrency.Task<Void, Never>?
 
     init(state: AppState, store: PolarisStore?) {
         self.state = state
@@ -93,51 +94,81 @@ final class NoteModel {
     private func updateHoveredRow() {
         guard !theme.snapshot else { return }
         guard let pointer, !dragging else { if hoveredRow != nil { hoveredRow = nil }; return }
-        let hit = rowFrames.first { $0.value.insetBy(dx: -8, dy: -4).contains(pointer) }?.key
+        // あとでの行は隙間なく並ぶので、まず枠そのもので当て、外れたら少し広げて当てる。
+        let hit = rowFrames.first { $0.value.contains(pointer) }?.key
+            ?? rowFrames.first { $0.value.insetBy(dx: -8, dy: -4).contains(pointer) }?.key
         if hit != hoveredRow { hoveredRow = hit }
     }
 
     // MARK: 状態の反映
+    /// 読めない間もストリームは生きていて、直れば次の読み込みで戻る。ストリーム自体が終わったら数秒おいて購読し直す。
     func startObserving() {
-        guard let store else { return }
-        _Concurrency.Task { @MainActor [weak self] in
-            do {
-                for try await next in store.changes() { self?.apply(next) }
-            } catch {
-                self?.loadFailed = true
-                self?.show(.error(Copy.loadFailed))
+        guard let store, observation == nil else { return }
+        observation = _Concurrency.Task { @MainActor [weak self] in
+            while !_Concurrency.Task.isCancelled {
+                for await result in store.changes() {
+                    guard let self else { return }
+                    switch result {
+                    case .success(let next): self.apply(next)
+                    case .failure: self.markLoadFailed()
+                    }
+                }
+                try? await _Concurrency.Task.sleep(for: .seconds(3))
             }
         }
-        clock = _Concurrency.Task { @MainActor [weak self] in
-            while !_Concurrency.Task.isCancelled {
-                try? await _Concurrency.Task.sleep(for: .seconds(1))
-                self?.now = Date()
-            }
+    }
+
+    private func markLoadFailed() {
+        guard !loadFailed else { return }
+        loadFailed = true
+        show(.error(Copy.loadFailed))
+    }
+
+    /// banner の期限にだけ起きて `now` を進める。期限が無いときはタイマーを持たない。
+    private func scheduleBannerExpiry() {
+        bannerTimer?.cancel()
+        bannerTimer = nil
+        now = Date()
+        guard let expiry = state.banner?.expiresAt, expiry > now else { return }
+        bannerTimer = _Concurrency.Task { @MainActor [weak self] in
+            try? await _Concurrency.Task.sleep(for: .seconds(expiry.timeIntervalSinceNow + 0.05))
+            guard let self, !_Concurrency.Task.isCancelled else { return }
+            withAnimation(PolarisTheme.Motion.voiceSwap(self.theme.reduceMotion)) { self.now = Date() }
         }
     }
 
     func apply(_ next: AppState) {
         guard next != state else { return }
+        let firstLoad = state.today.date.isEmpty && !next.today.date.isEmpty
         let dayChanged = next.today.date != state.today.date && !state.today.date.isEmpty
         let leadChanged = next.today.now.first?.id != state.today.now.first?.id
         let animation: Animation? = leadChanged ? PolarisTheme.Motion.promote(theme.reduceMotion) : .easeOut(duration: 0.2)
         let newBanner = next.banner != nil && next.banner != state.banner ? next.banner : nil
+        let bannerChanged = next.banner != state.banner
         withAnimation(animation) { state = next }
+        if bannerChanged { scheduleBannerExpiry() }
         if let newBanner { announce("\(newBanner.text)。\(Copy.from(Copy.clientName(newBanner.from)))", .low) }
-        loadFailed = false
+        if loadFailed {
+            loadFailed = false
+            if case .error(Copy.loadFailed) = transient { clearTransient() }
+        }
         if let swapping, !next.later.contains(where: { $0.id == swapping }) { self.swapping = nil }
         if case .overflow(let id, _, _) = transient, !next.later.contains(where: { $0.id == id }) { clearTransient() }
         if dayChanged {
             pinned = false; laterOpen = false; editing = nil
+            onDayChanged()
+        } else if firstLoad {
             onDayChanged()
         }
         onStateApplied()
     }
 
     /// ストア操作をメインスレッド外で行い、終わったら最新状態を反映する。
+    /// `always` は成功でも失敗でも最後に1回呼ぶ（後始末用）。
     func run<T: Sendable>(_ op: @escaping @Sendable (PolarisStore) throws -> T,
-                          then done: @escaping @MainActor (T) -> Void = { _ in }) {
-        guard let store else { return }
+                          then done: @escaping @MainActor (T) -> Void = { _ in },
+                          always: @escaping @MainActor () -> Void = {}) {
+        guard let store else { always(); return }
         _Concurrency.Task { @MainActor [weak self] in
             let result = await _Concurrency.Task.detached(priority: .userInitiated) {
                 Result { () throws -> (T, AppState) in
@@ -149,8 +180,12 @@ final class NoteModel {
             switch result {
             case .success(let (value, state)):
                 self.apply(state)
+                always()
                 done(value)
-            case .failure:
+            case .failure(let error):
+                always()
+                // そのあいだに消されたものを操作しただけなら、保存の失敗ではない。
+                if case PolarisError.taskNotFound = error { return }
                 self.show(.error(Copy.saveFailed))
             }
         }
