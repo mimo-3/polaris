@@ -6,9 +6,18 @@ import PolarisCore
 public struct MCPServer: Sendable {
     private let store: PolarisStore
     private var clientName = "unknown"
+    private var initialized = false
     public init(store: PolarisStore = PolarisStore()) { self.store = store }
 
+    /// 1行の上限。超えた行は読み捨てて Invalid Request を返す。
+    public static let maxLineBytes = 1 << 20
+    public static func tooLongResponse() -> String {
+        #"{"error":{"code":-32600,"message":"Request too large"},"id":null,"jsonrpc":"2.0"}"#
+    }
+
     public mutating func handle(line: String) -> String? {
+        // 行区切りのトランスポートで空行には応答しない。
+        if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
         let parsed: Any
         do { parsed = try JSONSerialization.jsonObject(with: Data(line.utf8), options: [.fragmentsAllowed]) }
         catch { return encode(self.error(id: NSNull(), code: -32700, message: "Parse error")) }
@@ -24,6 +33,12 @@ public struct MCPServer: Sendable {
             return encode(self.error(id: id, code: -32602, message: "Expected named parameters"))
         }
         let params = request["params"] as? [String: Any] ?? [:]
+        if method == "initialize" && initialized {
+            return encode(self.error(id: id, code: -32600, message: "Already initialized"))
+        }
+        if method != "initialize" && method != "ping" && !initialized {
+            return encode(self.error(id: id, code: -32600, message: "Not initialized"))
+        }
         let result: [String: Any]
         switch method {
         case "initialize":
@@ -32,7 +47,8 @@ public struct MCPServer: Sendable {
                   client["version"] is String, params["capabilities"] is [String: Any] else {
                 return encode(self.error(id: id, code: -32602, message: "protocolVersion, capabilities and clientInfo are required"))
             }
-            clientName = name.isEmpty ? "unknown" : name
+            clientName = TextRules.clientName(name)
+            initialized = true
             let supported = ["2024-11-05", "2025-03-26", "2025-06-18"]
             result = ["protocolVersion": supported.contains(version) ? version : "2025-06-18",
                       "capabilities": ["tools": ["listChanged": false]],
@@ -42,6 +58,9 @@ public struct MCPServer: Sendable {
         case "tools/call":
             guard let name = params["name"] as? String else {
                 return encode(self.error(id: id, code: -32602, message: "name is required"))
+            }
+            guard Self.definitions.contains(where: { $0["name"] as? String == name }) else {
+                return encode(self.error(id: id, code: -32602, message: "Unknown tool: \(name)"))
             }
             do {
                 guard params["arguments"] == nil || params["arguments"] is [String: Any] else { throw PolarisError.invalidInput("argumentsはオブジェクトです") }
@@ -72,6 +91,7 @@ public struct MCPServer: Sendable {
         case "polaris_complete_task": return try json(store.completeTask(id: try uuid(a)).today)
         case "polaris_move_task": return try json(store.moveTask(id: try uuid(a), to: TaskDestination(rawValue: a["to"] as! String)!, position: integer(a["position"])))
         case "polaris_remove_task": return try json(store.removeTask(id: try uuid(a)).today)
+        case "polaris_rename_task": return try json(store.renameTask(id: try uuid(a), title: a["title"] as! String).today)
         case "polaris_list_later": return try json(store.read().later)
         case "polaris_nudge": return try json(store.nudge(text: a["text"] as! String, from: clientName, ttlMinutes: (a["ttl_minutes"] as? NSNumber)?.doubleValue ?? 5).banner)
         case "polaris_get_history": return try json(store.history(days: integer(a["days"]) ?? 90))
@@ -96,6 +116,9 @@ public struct MCPServer: Sendable {
             guard let property = properties[key] else { throw PolarisError.invalidInput("未知の引数: \(key)") }
             let type = property["type"] as? String
             if type == "string" && !(value is String) { throw PolarisError.invalidInput("\(key)は文字列です") }
+            if let max = property["maxLength"] as? Int, let text = value as? String, text.count > max {
+                throw PolarisError.invalidInput("\(key)は\(max)文字以内です")
+            }
             if type == "integer" && integer(value) == nil { throw PolarisError.invalidInput("\(key)は0以上の整数です") }
             if type == "number" {
                 guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else { throw PolarisError.invalidInput("\(key)は数値です") }
@@ -122,7 +145,7 @@ public struct MCPServer: Sendable {
 
     private static var definitions: [[String: Any]] {
         let caution = " ユーザーの集中を守る道具なのでnowを勝手に入れ替えない。追加はlaterを既定にする。"
-        let string: [String: Any] = ["type": "string"]
+        let title: [String: Any] = ["type": "string", "minLength": 1, "maxLength": TextRules.titleMax]
         let id: [String: Any] = ["type": "string", "format": "uuid"]
         let destination: [String: Any] = ["type": "string", "enum": ["now", "later"], "default": "later"]
         let position: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。now満杯ならlater末尾。"]
@@ -131,15 +154,16 @@ public struct MCPServer: Sendable {
         }
         return [
             tool("polaris_get_today", "今日のモード、北極星、now、done、later件数、bannerを取得する。"),
-            tool("polaris_set_north_star", "北極星を1文で設定する。空文字で消去。", ["text": string], ["text"]),
+            tool("polaris_set_north_star", "北極星を1文で設定する。空文字で消去。", ["text": ["type": "string", "maxLength": TextRules.northStarMax]], ["text"]),
             tool("polaris_set_mode", "既定モードを選ぶ。", ["mode_id": ["type": "string", "enum": Mode.defaults.map(\.id)]], ["mode_id"]),
             tool("polaris_list_modes", "モード一覧を取得する。"),
-            tool("polaris_add_task", "タスクを追加する。nowは最大3件。満杯ならlaterへ送りoverflowedで返す。", ["title": ["type": "string", "minLength": 1], "to": destination, "position": position], ["title"]),
+            tool("polaris_add_task", "タスクを追加する。nowは最大3件。満杯ならlaterへ送りoverflowedで返す。", ["title": title, "to": destination, "position": position], ["title"]),
             tool("polaris_complete_task", "タスクを完了し本命なら次を繰り上げる。", ["id": id], ["id"]),
             tool("polaris_move_task", "指定タスクを移動する。doneからの移動は未完了に戻す。", ["id": id, "to": destination, "position": position], ["id", "to"]),
             tool("polaris_remove_task", "指定タスクを削除する。", ["id": id], ["id"]),
+            tool("polaris_rename_task", "指定タスクの名前だけを変える。idと位置は変わらない。", ["id": id, "title": title], ["id", "title"]),
             tool("polaris_list_later", "あとでの一覧を取得する。"),
-            tool("polaris_nudge", "一時メッセージを1件表示し以前のメッセージを置換する。", ["text": ["type": "string", "minLength": 1], "ttl_minutes": ["type": "number", "exclusiveMinimum": 0, "maximum": 1440, "default": 5]], ["text"]),
+            tool("polaris_nudge", "一時メッセージを1件表示し以前のメッセージを置換する。", ["text": ["type": "string", "minLength": 1, "maxLength": TextRules.bannerMax], "ttl_minutes": ["type": "number", "exclusiveMinimum": 0, "maximum": 1440, "default": 5]], ["text"]),
             tool("polaris_get_history", "直近90日以内から最大days件の履歴を古い順に取得する。", ["days": ["type": "integer", "minimum": 1, "maximum": 90, "default": 90]])
         ]
     }
