@@ -24,6 +24,9 @@ struct QuickEditView: View {
 
     private var remaining: Int { max(0, 3 - model.today.now.count) }
 
+    /// スナップショットでは実際のフォーカスが無いので、開いたときの位置を描く。
+    private func isFocused(_ field: Field) -> Bool { theme.snapshot ? initialFocus == field : focus == field }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             MetaText(text: Copy.northStarLabel)
@@ -32,6 +35,7 @@ struct QuickEditView: View {
                              lineSpacing: PolarisTheme.Typography.northStarLineSpacing, axis: .vertical, lines: 1...3,
                              onSubmit: { save(toLater: false) })
                 .focused($focus, equals: .northStar)
+                .fieldBox(focused: isFocused(.northStar))
                 .accessibilityLabel(Copy.northStarLabel)
             Spacer().frame(height: S.m)
             MetaText(text: Copy.addLabel)
@@ -40,6 +44,7 @@ struct QuickEditView: View {
                              onSubmit: { save(toLater: NSEvent.modifierFlags.contains(.option)) })
                 .frame(height: 20)
                 .focused($focus, equals: .add)
+                .fieldBox(focused: isFocused(.add))
                 .accessibilityLabel(Copy.addLabel)
             Spacer().frame(height: S.xs)
             MetaText(text: remaining > 0 ? Copy.toNow(remaining) : Copy.toLaterFull)
