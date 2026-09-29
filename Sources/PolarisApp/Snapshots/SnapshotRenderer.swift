@@ -44,6 +44,8 @@ enum SnapshotRenderer {
                     }
                 }
             }
+            try renderMenuBarIcons(to: dir)
+            count += 2
             print("\(count) snapshots → \(dir.path)")
             return 0
         } catch {
@@ -60,6 +62,7 @@ enum SnapshotRenderer {
         model.theme = theme
         model.dayClosedDate = nil
         scenario.configure(model)
+        theme = model.theme // configure で Differentiate Without Color などを変えられる
 
         let backdrop = variant.dark ? Color(nsColor: NSColor(hex: 0x34373D)) : Color(nsColor: NSColor(hex: 0xD3D6DA))
         let content = scenario.build(model)
@@ -79,6 +82,44 @@ enum SnapshotRenderer {
             throw PolarisError.invalidState("描画に失敗: \(url.lastPathComponent)")
         }
         try png.write(to: url)
+    }
+
+    /// メニューバーのアイコン（テンプレート画像）を、明暗それぞれのメニューバーに近い地で書き出す。
+    private static func renderMenuBarIcons(to dir: URL) throws {
+        for (name, hidden) in [("menubar-icon", false), ("menubar-icon-hidden", true)] {
+            let icon = StatusMenu.icon(hidden: hidden)
+            let size = NSSize(width: 88, height: 24)
+            let image = NSImage(size: size, flipped: false) { rect in
+                for (i, dark) in [false, true].enumerated() {
+                    let half = NSRect(x: CGFloat(i) * rect.width / 2, y: 0, width: rect.width / 2, height: rect.height)
+                    NSColor(hex: dark ? 0x2A2B2F : 0xE9EAEC).setFill()
+                    half.fill()
+                    let tinted = NSImage(size: icon.size, flipped: false) { r in
+                        icon.draw(in: r)
+                        (dark ? NSColor.white : NSColor.black).set()
+                        r.fill(using: .sourceAtop)
+                        return true
+                    }
+                    tinted.draw(in: NSRect(x: half.midX - 8, y: half.midY - 8, width: 16, height: 16))
+                }
+                return true
+            }
+            // 目で確かめられるよう 4倍で書き出す。
+            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width) * 4, pixelsHigh: Int(size.height) * 4,
+                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+                throw PolarisError.invalidState("描画に失敗: \(name)")
+            }
+            rep.size = size
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            image.draw(in: NSRect(origin: .zero, size: size))
+            NSGraphicsContext.restoreGraphicsState()
+            guard let png = rep.representation(using: .png, properties: [:]) else {
+                throw PolarisError.invalidState("描画に失敗: \(name)")
+            }
+            try png.write(to: dir.appendingPathComponent("\(name).png"))
+        }
     }
 
     // MARK: 状態
@@ -102,12 +143,28 @@ enum SnapshotRenderer {
                  state: { _ in Fixtures.state(northStar: "", now: [], done: []) }),
         Scenario(name: "empty-now", build: { _ in card() },
                  state: { _ in Fixtures.state(now: [], done: []) }),
+        Scenario(name: "empty-northstar-with-now", build: { _ in card() },
+                 state: { _ in Fixtures.state(northStar: "") }),
+        Scenario(name: "collapsed-dwc", build: { _ in card() }, configure: { m in
+            m.theme.differentiateWithoutColor = true
+        }),
+        Scenario(name: "later-empty", build: { _ in card() }, configure: { m in m.pinned = true },
+                 state: { _ in Fixtures.state(later: []) }),
+        Scenario(name: "later-keyboard", build: { _ in card() }, configure: { m in
+            m.pinned = true
+            m.laterOpen = true
+            m.isKey = true
+            m.keyboardIndex = m.focusOrder.firstIndex(of: .laterRow(Fixtures.later[1].id))
+        }, state: { _ in Fixtures.state(now: Array(Fixtures.work.prefix(2))) }),
         Scenario(name: "morning-1", variants: [light, dark, hcLight, hcDark], build: { m in
             AnyView(MorningSheetView(state: m.state, step: 1, close: {}))
         }, state: { _ in Fixtures.state(northStar: "", now: [], done: [], history: [Fixtures.yesterday]) }),
         Scenario(name: "morning-2", build: { m in
             AnyView(MorningSheetView(state: m.state, step: 2, close: {}))
         }, state: { _ in Fixtures.state(northStar: "", now: [], done: [], history: [Fixtures.yesterday]) }),
+        Scenario(name: "morning-2-filled", build: { m in
+            AnyView(MorningSheetView(state: m.state, step: 2, close: {}))
+        }, state: { _ in Fixtures.state(northStar: Fixtures.shortStar, now: [], done: [], history: [Fixtures.yesterday]) }),
         Scenario(name: "morning-3", build: { m in
             AnyView(MorningSheetView(state: m.state, step: 3, selected: [Fixtures.work[0].id, Fixtures.later[1].id], close: {}))
         }, state: { _ in
@@ -124,6 +181,11 @@ enum SnapshotRenderer {
             m.detour = Detour(bundleID: "com.tinyspeck.slackmacgap", appName: "Slack", pid: 0, mode: m.mode)
             m.snapshotRipple = 0.45
         }),
+        Scenario(name: "detour-keyboard", mode: "reading", build: { _ in card() }, configure: { m in
+            m.detour = Detour(bundleID: "com.anthropic.claudefordesktop", appName: "Claude", pid: 0, mode: m.mode)
+            m.isKey = true
+            m.keyboardIndex = m.initialKeyboardIndex
+        }),
         Scenario(name: "detour-hidden", mode: "reading", build: { _ in AnyView(MiniDetourView()) }, configure: { m in
             m.detour = Detour(bundleID: "com.tinyspeck.slackmacgap", appName: "Slack", pid: 0, mode: m.mode)
         }),
@@ -132,11 +194,20 @@ enum SnapshotRenderer {
                            banner: Banner(text: "PR終わったよ、本命に戻ろう", from: "claude-code",
                                           expiresAt: Date().addingTimeInterval(3600)))
         }),
+        Scenario(name: "banner-expanded", build: { _ in card() }, configure: { m in m.pinned = true }, state: { _ in
+            Fixtures.state(northStar: Fixtures.shortStar,
+                           banner: Banner(text: "PR #128 のレビューが通った。マージは任せて、本命のレビュー指摘に戻ろう",
+                                          from: "claude-code", expiresAt: Date().addingTimeInterval(3600)))
+        }),
         Scenario(name: "clickthrough", build: { m in
             AnyView(NoteCard().opacity(m.theme.clickThroughAlpha))
         }, configure: { m in m.clickThrough = true }),
         Scenario(name: "overflow-to-later", build: { _ in card() }, configure: { m in
             m.transient = .overflow(taskID: Fixtures.later[0].id, title: "議事録を整える", client: nil)
+        }),
+        Scenario(name: "overflow-mcp", build: { _ in card() }, configure: { m in
+            m.transient = .overflow(taskID: Fixtures.later[1].id, title: "オンボーディング資料の図を差し替える",
+                                    client: "Claude Code")
         }),
         Scenario(name: "overflow-swap", build: { _ in card() }, configure: { m in
             m.transient = .overflow(taskID: Fixtures.later[0].id, title: "議事録を整える", client: nil)
@@ -146,6 +217,10 @@ enum SnapshotRenderer {
         Scenario(name: "undo", build: { _ in card() }, configure: { m in
             m.transient = .undo(taskID: Fixtures.done[1].id, index: 0, title: "PRをマージ", next: nil)
         }),
+        Scenario(name: "undo-long", build: { _ in card() }, configure: { m in
+            m.transient = .undo(taskID: Fixtures.done[1].id, index: 0,
+                                title: "決済APIのリトライ設定を本番の値に合わせて見直す", next: nil)
+        }),
         Scenario(name: "all-done", build: { _ in card() },
                  state: { _ in Fixtures.state(now: [], done: Fixtures.done + [Fixtures.completed(Fixtures.task(22, "レビュー指摘を直す"))]) }),
         Scenario(name: "all-done-expanded", build: { _ in card() },
@@ -153,6 +228,9 @@ enum SnapshotRenderer {
                  state: { _ in Fixtures.state(now: [], done: Fixtures.done + [Fixtures.completed(Fixtures.task(22, "レビュー指摘を直す"))]) }),
         Scenario(name: "day-closed", build: { _ in card() }, configure: { m in m.dayClosedDate = Fixtures.date },
                  state: { _ in Fixtures.state(now: [], done: Fixtures.done) }),
+        Scenario(name: "settings", build: { _ in
+            AnyView(SettingsView(conflicts: [.toggleClickThrough]).frame(width: 440).background(PolarisTheme.Palette.surface))
+        }),
         Scenario(name: "quick-edit", build: { m in
             AnyView(QuickEditView(state: m.state, focus: .add, close: {}))
         }, state: { _ in Fixtures.state(now: Array(Fixtures.work.prefix(2))) }),

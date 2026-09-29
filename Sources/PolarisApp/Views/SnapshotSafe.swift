@@ -49,3 +49,31 @@ struct PolarisScroll<Content: View>: View {
         }
     }
 }
+
+/// スイッチ。スナップショットでは NSSwitch を描けないので、同じ寸法の図形で描く。
+struct PolarisSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PolarisSwitchBody(configuration: configuration)
+    }
+}
+
+private struct PolarisSwitchBody: View {
+    var configuration: ToggleStyleConfiguration
+    @Environment(\.polaris) private var theme
+
+    var body: some View {
+        if theme.snapshot {
+            HStack(spacing: 8) {
+                configuration.label
+                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                    Capsule().fill(configuration.isOn ? Color.accentColor : PolarisTheme.Palette.pressFill)
+                    Circle().fill(.white).shadow(color: .black.opacity(0.2), radius: 0.5, y: 0.5).padding(1.5)
+                }
+                .frame(width: 26, height: 15)
+            }
+        } else {
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+                .toggleStyle(.switch)
+        }
+    }
+}
