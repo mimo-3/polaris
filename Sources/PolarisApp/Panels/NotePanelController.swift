@@ -15,6 +15,7 @@ final class NotePanelController {
     private var dragStart: (mouse: NSPoint, origin: NSPoint)?
     private var previousApp: NSRunningApplication?
     private var displayUUID: String?
+    private var observers: [NSObjectProtocol] = []
 
     /// ⌃⌥H などで隠している。
     private(set) var isHidden = false
@@ -41,20 +42,26 @@ final class NotePanelController {
         restorePlacement()
 
         let center = NotificationCenter.default
-        center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) { [weak self] _ in
+        observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.model.isKey = true }
-        }
-        center.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
+        })
+        observers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.model.isKey = false
                 self.model.keyboardIndex = nil
                 self.model.finishEditingOnResign()
             }
-        }
-        center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+        })
+        observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.placeAtCorner(animated: false) }
-        }
+        })
+    }
+
+    /// 通知の購読をやめる。作り直すときに呼ぶ。
+    func teardown() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.removeAll()
     }
 
     // MARK: 表示
@@ -142,7 +149,7 @@ final class NotePanelController {
     /// ⌃⌥O: 展開を固定して key にする。
     func focusForKeyboard() {
         if !model.pinned { model.togglePin() }
-        model.keyboardIndex = model.today.now.isEmpty ? 0 : 1
+        model.keyboardIndex = model.initialKeyboardIndex
         makeKey()
     }
 
@@ -280,6 +287,10 @@ struct NotePanelRoot: View {
         .onChange(of: model.isKey) { _, key in rootFocused = key && model.editing == nil }
         .onChange(of: model.editing) { _, editing in rootFocused = model.isKey && editing == nil }
         .onKeyPress(phases: .down) { press in
+            if press.key == .escape && model.swapping != nil {
+                model.cancelSwap()
+                return .handled
+            }
             if press.key == .escape {
                 model.unpinAll()
                 model.keyboardIndex = nil

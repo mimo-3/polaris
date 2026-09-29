@@ -10,6 +10,7 @@ final class AuxPanelController {
     private let place: () -> (NSScreen?, Corner)
     private var previousApp: NSRunningApplication?
     private var closeTask: _Concurrency.Task<Void, Never>?
+    private var observer: NSObjectProtocol?
     var onClose: () -> Void = {}
 
     init(width: CGFloat, keyable: Bool, clickThrough: Bool = false, place: @escaping () -> (NSScreen?, Corner)) {
@@ -21,9 +22,15 @@ final class AuxPanelController {
         hosting = NSHostingView(rootView: AnyView(EmptyView()))
         hosting.sizingOptions = []
         panel.contentView = hosting
-        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
+        observer = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.previousApp = nil }
         }
+    }
+
+    /// 通知の購読をやめる。作り直すときに呼ぶ。
+    func teardown() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
     }
 
     var isVisible: Bool { panel.isVisible }
