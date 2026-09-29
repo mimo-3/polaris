@@ -142,12 +142,13 @@ final class StoreTests {
 
     @Test func testUncoordinatedReadersAlwaysObserveCompleteJSONDuringWrites() throws {
         let subject = store(at: try home(), date: epoch)
-        _ = try subject.read()
+        // 1回の書き込みを大きくして、途中の状態が見えやすくする（文字列は上限内）。
+        for index in 0..<100 { _ = try subject.addTask(title: String(repeating: "星", count: 190) + "\(index)") }
         let failures = Failures()
         DispatchQueue.concurrentPerform(iterations: 4) { worker in
             do {
                 if worker == 0 {
-                    for index in 0..<60 { _ = try subject.setNorthStar(String(repeating: "星", count: 2000) + "\(index)") }
+                    for index in 0..<60 { _ = try subject.setNorthStar(String(repeating: "星", count: 190) + "\(index)") }
                 } else {
                     let decoder = JSONDecoder()
                     decoder.dateDecodingStrategy = .iso8601
@@ -182,9 +183,9 @@ final class StoreTests {
         let observed = try await withThrowingTaskGroup(of: Bool.self) { group in
             group.addTask {
                 var iterator = stream.makeAsyncIterator()
-                guard let first = try await iterator.next() else { return false }
+                guard let first = try await iterator.next()?.get() else { return false }
                 _ = try subject.setNorthStar("監視できた")
-                while let next = try await iterator.next() {
+                while let next = try await iterator.next()?.get() {
                     if next.revision > first.revision { return next.today.northStar == "監視できた" }
                 }
                 return false
@@ -198,5 +199,104 @@ final class StoreTests {
             return result
         }
         #expect(observed)
+    }
+
+    @Test func testWatcherKeepsRunningAfterUnreadableStateAndRecovers() async throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setNorthStar("最初")
+        let stream = subject.changes()
+        let recovered = try await withThrowingTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                guard case .success = await iterator.next() else { return false }
+                let good = try Data(contentsOf: subject.stateURL)
+                try Data("{broken".utf8).write(to: subject.stateURL)
+                guard case .failure = await iterator.next() else { return false }
+                try good.write(to: subject.stateURL)
+                guard case .success(let state) = await iterator.next() else { return false }
+                return state.today.northStar == "最初"
+            }
+            group.addTask {
+                try await _Concurrency.Task.sleep(for: .seconds(8))
+                return false
+            }
+            let result = try await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        #expect(recovered)
+    }
+
+    @Test func testRenameKeepsIdentityPositionAndSource() throws {
+        let subject = store(at: try home(), date: epoch)
+        let lead = try subject.addTask(title: "本命", to: .now, source: "mcp:codex")
+        _ = try subject.addTask(title: "二番", to: .now)
+        let state = try subject.renameTask(id: lead.task.id, title: "  本命（改）\n ")
+        #expect(state.today.now.map(\.title) == ["本命（改）", "二番"])
+        #expect(state.today.now[0].id == lead.task.id)
+        #expect(state.today.now[0].source == "mcp:codex")
+        #expect(state.today.now[0].createdAt == lead.task.createdAt)
+        #expect(throws: (any Error).self) { try subject.renameTask(id: lead.task.id, title: "  ") }
+        #expect(throws: (any Error).self) { try subject.renameTask(id: UUID(), title: "無い") }
+    }
+
+    @Test func testSwapAndMorningArrangeAreSingleRevisions() throws {
+        let subject = store(at: try home(), date: epoch)
+        let a = try subject.addTask(title: "A", to: .now).task
+        let b = try subject.addTask(title: "B", to: .now).task
+        let c = try subject.addTask(title: "C", to: .now).task
+        let d = try subject.addTask(title: "D", to: .now).task // later
+        let before = try subject.read().revision
+        let swapped = try subject.swapTasks(out: b.id, in: d.id)
+        #expect(swapped.revision == before + 1)
+        #expect(swapped.today.now.map(\.id) == [a.id, c.id, d.id])
+        #expect(swapped.later.map(\.id) == [b.id])
+        #expect(throws: (any Error).self) { try subject.swapTasks(out: b.id, in: d.id) }
+
+        let arranged = try subject.arrangeMorning(selected: [b.id, UUID(), a.id])
+        #expect(arranged.revision == before + 2)
+        #expect(arranged.today.now.map(\.id) == [b.id, a.id])
+        #expect(arranged.later.map(\.id) == [c.id, d.id])
+        #expect(throws: (any Error).self) { try subject.arrangeMorning(selected: [a.id, b.id, c.id, d.id]) }
+    }
+
+    @Test func testTextLimitsAndControlCharacters() throws {
+        let subject = store(at: try home(), date: epoch)
+        #expect(throws: (any Error).self) { try subject.addTask(title: String(repeating: "あ", count: TextRules.titleMax + 1)) }
+        #expect(throws: (any Error).self) { try subject.setNorthStar(String(repeating: "x", count: TextRules.northStarMax + 1)) }
+        #expect(throws: (any Error).self) { try subject.nudge(text: String(repeating: "x", count: TextRules.bannerMax + 1), from: "a") }
+        #expect(throws: (any Error).self) { try subject.addTask(title: "x", source: "mcp:" + String(repeating: "a", count: 65)) }
+        let placed = try subject.addTask(title: "a\u{202E}b\u{0007}\nc")
+        #expect(placed.task.title == "ab c")
+        let banner = try subject.nudge(text: "戻ろう", from: "evil\u{202E}\nname" + String(repeating: "z", count: 100)).banner
+        #expect(banner?.from.count == TextRules.clientMax)
+        #expect(banner?.from.hasPrefix("evil name") == true)
+    }
+
+    @Test func testRolloverAfterClockWentBackDoesNotDuplicateHistory() throws {
+        let home = try home()
+        let day = 86_400.0
+        _ = try store(at: home, date: epoch).addTask(title: "一日目", to: .now)
+        _ = try store(at: home, date: epoch.addingTimeInterval(day)).read()
+        // 時計が戻って前日の日付でもう一度 today が作られた状態を再現する。
+        var state = try store(at: home, date: epoch.addingTimeInterval(day)).read()
+        state.today.date = "2026-06-01"
+        state.today.done = [Task(title: "戻った日", completedAt: epoch)]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(state).write(to: home.appendingPathComponent("state.json"))
+        let rolled = try store(at: home, date: epoch.addingTimeInterval(day * 2)).read()
+        #expect(rolled.history.map(\.date) == ["2026-06-01"])
+        #expect(rolled.history[0].done.map(\.title) == ["戻った日"])
+    }
+
+    @Test func testResetCorruptStateMovesFileAsideOnlyWhenUnreadable() throws {
+        let home = try home()
+        let subject = store(at: home, date: epoch)
+        _ = try subject.setNorthStar("読める")
+        #expect(try subject.resetCorruptState() == nil)
+        try Data("{broken".utf8).write(to: subject.stateURL)
+        let backup = try #require(try subject.resetCorruptState())
+        #expect(try Data(contentsOf: backup) == Data("{broken".utf8))
+        #expect(try subject.read().today.northStar == "")
     }
 }
