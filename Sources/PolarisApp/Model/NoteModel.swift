@@ -121,7 +121,9 @@ final class NoteModel {
         let dayChanged = next.today.date != state.today.date && !state.today.date.isEmpty
         let leadChanged = next.today.now.first?.id != state.today.now.first?.id
         let animation: Animation? = leadChanged ? PolarisTheme.Motion.promote(theme.reduceMotion) : .easeOut(duration: 0.2)
+        let newBanner = next.banner != nil && next.banner != state.banner ? next.banner : nil
         withAnimation(animation) { state = next }
+        if let newBanner { announce("\(newBanner.text)。\(Copy.from(Copy.clientName(newBanner.from)))", .low) }
         loadFailed = false
         if let swapping, !next.later.contains(where: { $0.id == swapping }) { self.swapping = nil }
         if case .overflow(let id, _, _) = transient, !next.later.contains(where: { $0.id == id }) { clearTransient() }
