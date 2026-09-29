@@ -13,6 +13,11 @@ final class MCPServerTests {
         let date = Date(timeIntervalSince1970: 1_780_272_000)
         return MCPServer(store: PolarisStore(homeURL: directory, clock: { date }))
     }
+    private func initializedServer(name: String = "test") throws -> MCPServer {
+        var subject = try server()
+        _ = try response(&subject, ["jsonrpc": "2.0", "id": 0, "method": "initialize", "params": ["protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": name, "version": "1"]]])
+        return subject
+    }
     private func response(_ server: inout MCPServer, _ request: [String: Any]) throws -> [String: Any] {
         let data = try JSONSerialization.data(withJSONObject: request)
         let line = server.handle(line: String(decoding: data, as: UTF8.self))
@@ -46,7 +51,7 @@ final class MCPServerTests {
         let list = try #require(listed["result"] as? [String: Any])
         let tools = try #require(list["tools"] as? [[String: Any]])
         let names = Set(tools.compactMap { $0["name"] as? String })
-        #expect(names == Set(["polaris_get_today", "polaris_set_north_star", "polaris_set_mode", "polaris_list_modes", "polaris_add_task", "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_list_later", "polaris_nudge", "polaris_get_history"]))
+        #expect(names == Set(["polaris_get_today", "polaris_set_north_star", "polaris_set_mode", "polaris_list_modes", "polaris_add_task", "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_rename_task", "polaris_list_later", "polaris_nudge", "polaris_get_history"]))
         for tool in tools {
             let schema = try #require(tool["inputSchema"] as? [String: Any])
             #expect(schema["type"] as? String == "object")
@@ -66,7 +71,7 @@ final class MCPServerTests {
     }
 
     @Test func testInvalidJSONAndUnknownMethodReturnProtocolErrors() throws {
-        var subject = try server()
+        var subject = try initializedServer()
         let invalidLine = subject.handle(line: "{broken")
         let invalid = try decode(#require(invalidLine))
         #expect((invalid["error"] as? [String: Any])?["code"] as? Int == -32700)
@@ -78,7 +83,7 @@ final class MCPServerTests {
     }
 
     @Test func testInvalidToolInputsReturnIsErrorInsteadOfProtocolError() throws {
-        var subject = try server()
+        var subject = try initializedServer()
         let invalidCalls: [(String, [String: Any])] = [
             ("polaris_add_task", [:]),
             ("polaris_add_task", ["title": 12]),
@@ -89,7 +94,8 @@ final class MCPServerTests {
             ("polaris_set_mode", ["mode_id": "missing"]),
             ("polaris_nudge", ["text": "hello", "ttl_minutes": 0]),
             ("polaris_get_history", ["days": false]),
-            ("missing_tool", [:])
+            ("polaris_add_task", ["title": String(repeating: "x", count: 201)]),
+            ("polaris_rename_task", ["id": UUID().uuidString, "title": "x"])
         ]
         for (name, arguments) in invalidCalls {
             let result = try call(&subject, name, arguments: arguments)
@@ -104,5 +110,45 @@ final class MCPServerTests {
         #expect(ping["result"] != nil)
         #expect(subject.handle(line: #"{"jsonrpc":"2.0","method":"ping"}"#) == nil)
         #expect(subject.handle(line: #"{"jsonrpc":"2.0","method":"unknown_notification"}"#) == nil)
+    }
+
+    @Test func testUnknownToolIsProtocolErrorAndSessionRules() throws {
+        var fresh = try server()
+        let early = try response(&fresh, ["jsonrpc": "2.0", "id": 1, "method": "tools/list"])
+        #expect((early["error"] as? [String: Any])?["code"] as? Int == -32600)
+        #expect(fresh.handle(line: "   ") == nil)
+
+        var subject = try initializedServer()
+        let unknown = try response(&subject, ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": "no_such_tool"]])
+        #expect((unknown["error"] as? [String: Any])?["code"] as? Int == -32602)
+        let again = try response(&subject, ["jsonrpc": "2.0", "id": 3, "method": "initialize", "params": ["protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "other", "version": "1"]]])
+        #expect((again["error"] as? [String: Any])?["code"] as? Int == -32600)
+    }
+
+    @Test func testRenameToolKeepsIDAndClientNameIsSanitized() throws {
+        var subject = try initializedServer(name: "bad\u{202E}\nname")
+        let added = try payload(call(&subject, "polaris_add_task", arguments: ["title": "元", "to": "now"])) as? [String: Any]
+        let task = try #require(added?["task"] as? [String: Any])
+        #expect(task["source"] as? String == "mcp:bad name")
+        let id = try #require(task["id"] as? String)
+        let renamed = try call(&subject, "polaris_rename_task", arguments: ["id": id, "title": "新"])
+        #expect(renamed["isError"] as? Bool == false)
+        let day = try #require(payload(renamed) as? [String: Any])
+        let now = try #require(day["now"] as? [[String: Any]])
+        #expect(now.first?["id"] as? String == id)
+        #expect(now.first?["title"] as? String == "新")
+    }
+
+    @Test func testLineReaderDropsOversizedLines() throws {
+        var chunks: [[UInt8]] = [Array("ab\n".utf8), Array(repeating: 0x78, count: 40), Array("\ncd\r\nef".utf8)]
+        var reader = LineReader(maxBytes: 16) { buffer in
+            guard !chunks.isEmpty else { return 0 }
+            let next = chunks.removeFirst()
+            buffer.replaceSubrange(0..<next.count, with: next)
+            return next.count
+        }
+        var lines: [LineReader.Line] = []
+        while let line = reader.next() { lines.append(line) }
+        #expect(lines == [.text("ab"), .tooLong, .text("cd"), .text("ef")])
     }
 }
