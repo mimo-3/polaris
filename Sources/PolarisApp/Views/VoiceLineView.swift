@@ -63,7 +63,8 @@ struct VoiceLineView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(minHeight: 16)
+            // 小ボタン(24)は上下にはみ出させ、付箋の高さを変えない。
+            .frame(height: 16)
         case .overflow(_, let title, let client):
             VStack(alignment: .leading, spacing: PolarisTheme.Space.xs) {
                 Text(client.map { Copy.overflowMCP(title, $0) } ?? Copy.overflow(title))
