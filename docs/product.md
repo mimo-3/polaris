@@ -1,0 +1,73 @@
+# Polaris — 今日の北極星を、いつも画面のいちばん手前に
+
+## 解きたい問題
+
+並列で仕事を回しすぎて注意が散り、その日の本命を落とす。
+
+- 重要度1〜5位を並行していると、6〜10位が目に入って1位がおろそかになる
+- 本を読む日なのに、ふらっとSlackや仕事用のClaude Codeを開いてしまう
+
+Polarisは「今日いちばん大事なこと」を1つ、常に最前面の小さな付箋に出し続ける。
+タスク管理ツールではない。**見えるものを減らす**ための道具。
+
+## 原則
+
+1. **主役は1つ**。北極星（今日の一番）が常に最も大きく、最も目に入る
+2. **同時に見えるのは最大3つ**。4つ目以降は自動で「あとで」に送られ、件数しか見えない
+3. **止めない、気づかせる**。寄り道をブロックせず、静かに北極星へ視線を戻す
+4. **邪魔しない**。常時最前面だからこそ、小さく・静かに・クリックを奪わない
+5. **Macネイティブ**。SwiftUI + AppKit。Electronではない
+
+## データモデル（PolarisCore）
+
+- `Day`: `date`（YYYY-MM-DD, ローカル）, `mode`, `northStar`（1文、空可）, `now`（最大3件・順序あり、先頭が本命）, `done`（今日完了したもの）, `note`（任意の短文）
+- `Mode`: `id`, `label`（例: 仕事の日 / 読書の日 / 休む日）, `symbol`（SF Symbol名）, `tint`（デザイントークン名）, `avoidApps`（bundle ID の配列。前面に来たら寄り道とみなす）
+- `Task`: `id`(UUID), `title`, `createdAt`, `completedAt?`, `source`（`user` | `mcp:<client名>`）
+- `later`: 日をまたいで残る「あとで」リスト（上限なし、UIでは件数のみ表示、展開時だけ中身が見える）
+- `banner`: MCPから送られた一時メッセージ（`text`, `from`, `expiresAt`）。1件のみ保持
+- `history`: 過去の `Day`（直近90日）
+- 状態ファイル: `~/.polaris/state.json`（`schemaVersion`, `revision`）。環境変数 `POLARIS_HOME` で上書き可
+- 書き込みは一時ファイル→rename の原子的置換。変更のたびに `revision` を+1。アプリとMCPは同じファイルを共有し、アプリはファイル監視で即時反映する。変更操作は必ず「最新を読み直す→適用→書く」で行い、ファイルロック（`flock`）で直列化する
+
+### ルール
+
+- `now` に4件目を追加しようとしたら、追加せず `later` に入れ、その旨を結果で返す（UIでもMCPでも同じ）
+- 本命（`now[0]`）を完了したら、次が繰り上がる
+- 日付が変わって最初に起動・操作したとき、前日を `history` に移し、未完了の `now` は `later` の先頭に戻す。モードは既定モードに戻す。UIは「朝の支度」シートを出す（モード選択→北極星を1文→`later` から最大3件を選ぶ）
+- 寄り道検知: 前面アプリが現在モードの `avoidApps` に含まれたら、付箋が控えめに主張して北極星を示す（例:「今日は読書の日。戻る？」）。ブロックはしない。同じアプリで連続して出すのは5分に1回まで
+
+## ウィンドウ（PolarisApp）
+
+- `NSPanel`（nonactivating, floating level, 全Space・フルスクリーン上にも表示, Dockアイコンなし = `LSUIElement`）
+- 通常は小さな「付箋」: 北極星 + 本命1件 + モード表示。ホバーで展開して `now` 3件と `later` 件数、完了操作
+- 画面の四隅にスナップ。位置は記憶する
+- クリック透過モード（付箋越しに下のアプリを操作できる）と、一時的に隠す操作
+- メニューバーアイコン: 表示/非表示、朝の支度をやり直す、モード切替、設定、終了
+- グローバルショートカットで編集（北極星の書き換え・タスク追加）を開く
+- ライト/ダーク両対応、`NSVisualEffectView` 系の素材感、Reduce Motion / Increase Contrast 対応
+- 開発・デザインレビュー用に `Polaris --render-snapshots <dir>` で主要状態をPNGに書き出せる（ImageRenderer使用、ウィンドウは出さない）
+
+## MCP（polaris-mcp）
+
+- stdio の MCP サーバー。依存ライブラリなしの手書き JSON-RPC 2.0（行区切り）。Swift 実行ファイル、PolarisCore を共有
+- `.app` 内の `Contents/MacOS/polaris-mcp` に同梱。`claude mcp add polaris -- /Applications/Polaris.app/Contents/MacOS/polaris-mcp`
+- ツール:
+  - `polaris_get_today` — 今日の状態（モード・北極星・now・done・later件数・banner）
+  - `polaris_set_north_star(text)`
+  - `polaris_set_mode(mode_id)` / `polaris_list_modes`
+  - `polaris_add_task(title, to: "now"|"later", position?)` — nowが満杯なら later に入り、その旨を返す
+  - `polaris_complete_task(id)` / `polaris_move_task(id, to, position?)` / `polaris_remove_task(id)`
+  - `polaris_list_later`
+  - `polaris_nudge(text, ttl_minutes?)` — 付箋に一時メッセージを出す（例: エージェントが「PR終わったよ、本命に戻ろう」）
+  - `polaris_get_history(days?)`
+- ツールの説明文には「ユーザーの集中を守るための道具なので、`now` を勝手に入れ替えない。追加は `later` を既定にする」旨を書く
+
+## 構成
+
+- Swift Package（Swift 6, macOS 14+）。Xcodeプロジェクトは作らない
+  - `PolarisCore`（library）: モデル・ストア・日付ロールオーバー・ルール
+  - `PolarisApp`（executable）: SwiftUI + AppKit
+  - `polaris-mcp`（executable）
+  - `PolarisCoreTests` / `PolarisMCPTests`
+- `scripts/bundle.sh`: release ビルド → `build/Polaris.app` を組み立て（Info.plist, 両実行ファイル, アイコン）→ 署名（Developer ID があれば使用、無ければアドホック）
+- `Makefile`: `make build` / `make test` / `make app` / `make snapshots` / `make install`
