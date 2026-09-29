@@ -13,6 +13,7 @@ struct MiniDetourView: View {
                 .lineSpacing(PolarisTheme.Typography.northStarLineSpacing)
                 .foregroundStyle(theme.ink)
                 .lineLimit(2)
+                .padding(.vertical, PolarisTheme.Typography.northStarPadding)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer().frame(height: PolarisTheme.Space.l)
             VoiceLineView(compact: true)

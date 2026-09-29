@@ -68,6 +68,7 @@ struct VoiceLineView: View {
             VStack(alignment: .leading, spacing: PolarisTheme.Space.xs) {
                 Text(client.map { Copy.overflowMCP(title, $0) } ?? Copy.overflow(title))
                     .font(PolarisTheme.Typography.voice)
+                    .lineSpacing(PolarisTheme.Typography.voiceLineSpacing)
                     .foregroundStyle(theme.ink)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -98,6 +99,7 @@ struct VoiceLineView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(banner.text)
                     .font(PolarisTheme.Typography.voice)
+                    .lineSpacing(PolarisTheme.Typography.voiceLineSpacing)
                     .foregroundStyle(theme.ink)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
