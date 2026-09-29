@@ -15,6 +15,8 @@ struct MorningSheetView: View {
     @State private var writingNew = false
     @State private var forward = true
     @State private var cursor = 0
+    /// Tab で主ボタンへ移ったとき。
+    @State private var onPrimary = false
     @FocusState private var focus: Field?
     @FocusState private var rootFocused: Bool
 
@@ -89,17 +91,21 @@ struct MorningSheetView: View {
             Spacer().frame(height: S.m)
             VStack(spacing: S.s) {
                 ForEach(Array(Mode.defaults.enumerated()), id: \.element.id) { index, mode in
-                    ModeChoice(mode: mode, key: index + 1, selected: mode.id == modeID) { choose(mode) }
+                    ModeChoice(mode: mode, key: index + 1, selected: mode.id == modeID,
+                               focused: mode.id == modeID && keyboardVisible && !onPrimary) { choose(mode) }
                 }
             }
             Spacer().frame(height: S.xxl)
             HStack {
                 Spacer()
                 Button { go(to: 2) } label: { Text("\(Copy.writeNorthStar) ⏎") }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(PrimaryButtonStyle(focused: onPrimary && keyboardVisible))
             }
         }
     }
+
+    /// キーボードのフォーカスを描くか。スナップショットでは開いた直後の位置を描く。
+    private var keyboardVisible: Bool { rootFocused || theme.snapshot }
 
     private func choose(_ mode: Mode) {
         modeID = mode.id
@@ -122,32 +128,46 @@ struct MorningSheetView: View {
                              lineSpacing: PolarisTheme.Typography.northStarLineSpacing, axis: .vertical, lines: 1...3,
                              onSubmit: { go(to: 3) })
                 .focused($focus, equals: .northStar)
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .overlay(RoundedRectangle(cornerRadius: PolarisTheme.Radius.small, style: .continuous)
-                    .strokeBorder(focus == .northStar ? theme.star : PolarisTheme.Palette.hairline,
-                                  lineWidth: focus == .northStar ? 2 : 1))
+                .fieldBox(focused: focus == .northStar || (theme.snapshot && northStar.isEmpty))
                 .onAppear { if !theme.snapshot { focus = .northStar } }
             Spacer().frame(height: S.s)
             MetaText(text: Copy.step2Hint)
             if canCarryOver, let y = yesterday {
                 Spacer().frame(height: S.s)
-                Button(Copy.carryOver) { northStar = y.northStar }
-                    .buttonStyle(QuietButtonStyle(height: 24))
-                    .padding(.leading, -8)
+                Button { northStar = y.northStar } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.uturn.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .accessibilityHidden(true)
+                        Text(Copy.carryOver + y.northStar)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .buttonStyle(QuietButtonStyle(height: 24))
+                .padding(.leading, -8)
             }
             Spacer().frame(height: S.xxl)
-            HStack {
+            HStack(spacing: S.s) {
                 Button(Copy.back) { go(to: 1) }
                     .buttonStyle(QuietButtonStyle())
                     .padding(.leading, -8)
                 Spacer()
+                // 空のとき、いちばん押しやすい見た目を「決めずに進む」に渡さない。⏎ は Quiet 側を押す。
+                if northStarEmpty {
+                    Button { go(to: 3) } label: { Text("\(Copy.skipNorthStar) ⏎") }
+                        .buttonStyle(QuietButtonStyle())
+                }
                 Button { go(to: 3) } label: {
-                    Text("\(northStar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Copy.skipNorthStar : Copy.pickThree) ⏎")
+                    Text(northStarEmpty ? Copy.pickThree : "\(Copy.pickThree) ⏎")
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                .disabled(northStarEmpty)
             }
         }
     }
+
+    private var northStarEmpty: Bool { northStar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     // MARK: Step 3
 
@@ -172,7 +192,7 @@ struct MorningSheetView: View {
                             PickRow(task: task, order: selected.firstIndex(of: task.id),
                                     disabled: selected.count >= 3 && !selected.contains(task.id),
                                     origin: origin(of: task),
-                                    focused: cursor == index && rootFocused) { toggle(task.id) }
+                                    focused: cursor == index && rootFocused && !onPrimary) { toggle(task.id) }
                         }
                     }
                 }
@@ -185,7 +205,7 @@ struct MorningSheetView: View {
                     .padding(.leading, -8)
                 Spacer()
                 Button { finish() } label: { Text("\(Copy.startWith(selected.count)) ⏎") }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(PrimaryButtonStyle(focused: onPrimary && rootFocused))
             }
         }
         .onAppear { if candidates.isEmpty && !theme.snapshot { writingNew = true; focus = .newTask } }
@@ -234,6 +254,7 @@ struct MorningSheetView: View {
         forward = next > step
         withAnimation(PolarisTheme.Motion.sheetStep(theme.reduceMotion)) { step = next }
         cursor = 0
+        onPrimary = false
         if next != 2 { rootFocused = true }
     }
 
@@ -256,19 +277,29 @@ struct MorningSheetView: View {
             if step > 1 { go(to: step - 1) }
             return .handled
         }
+        if press.key == .tab && step != 2 && focus == nil {
+            onPrimary.toggle(); return .handled
+        }
         switch step {
         case 1:
             if let n = Int(press.characters), (1...Mode.defaults.count).contains(n) {
                 choose(Mode.defaults[n - 1]); return .handled
             }
-            if press.key == .return { go(to: 2); return .handled }
+            if press.key == .downArrow || press.key == .upArrow {
+                let modes = Mode.defaults
+                let current = modes.firstIndex { $0.id == modeID } ?? 0
+                let next = min(max(current + (press.key == .downArrow ? 1 : -1), 0), modes.count - 1)
+                onPrimary = false
+                choose(modes[next]); return .handled
+            }
+            if press.key == .return || (press.key == .space && onPrimary) { go(to: 2); return .handled }
         case 3:
             if focus == .newTask { return .ignored }
             switch press.key {
-            case .downArrow: cursor = min(cursor + 1, max(candidates.count - 1, 0)); return .handled
-            case .upArrow: cursor = max(cursor - 1, 0); return .handled
+            case .downArrow: onPrimary = false; cursor = min(cursor + 1, max(candidates.count - 1, 0)); return .handled
+            case .upArrow: onPrimary = false; cursor = max(cursor - 1, 0); return .handled
             case .space:
-                if candidates.indices.contains(cursor) { toggle(candidates[cursor].id) }
+                if onPrimary { finish() } else if candidates.indices.contains(cursor) { toggle(candidates[cursor].id) }
                 return .handled
             case .return: finish(); return .handled
             default: break
@@ -279,11 +310,13 @@ struct MorningSheetView: View {
     }
 }
 
-/// Step 1 の選択肢。h56 r10。選択中は 1.5pt ink の枠で示し、塗らない。
+/// Step 1 の選択肢。h56 r10。選択中は ink の枠で示し、塗らない。
+/// Increase Contrast では未選択の枠も border（35%）にし、選択中は 2pt にして差を保つ。
 private struct ModeChoice: View {
     var mode: Mode
     var key: Int
     var selected: Bool
+    var focused: Bool
     var action: () -> Void
     @Environment(\.polaris) private var theme
 
@@ -304,17 +337,26 @@ private struct ModeChoice: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                MetaText(text: "\(key)")
+                KeyCap(text: "\(key)")
             }
             .padding(.horizontal, 14)
             .frame(height: 56)
             .contentShape(shape)
-            .overlay(shape.strokeBorder(selected ? theme.ink : PolarisTheme.Palette.hairline,
-                                        lineWidth: selected ? 1.5 : 1))
+            .overlay(shape.strokeBorder(border, lineWidth: borderWidth))
         }
         .buttonStyle(.plain)
+        .focusRing(focused, radius: PolarisTheme.Radius.choice)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint("キー \(key)")
+    }
+
+    private var border: Color {
+        if selected { return theme.ink }
+        return theme.increaseContrast ? PolarisTheme.Palette.HighContrast.border : PolarisTheme.Palette.hairline
+    }
+    private var borderWidth: CGFloat {
+        if selected { return theme.increaseContrast ? 2 : 1.5 }
+        return 1
     }
 }
 
