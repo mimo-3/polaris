@@ -78,6 +78,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(submenu(Copy.cornerMenu, corners))
         menu.addItem(.separator())
 
+        if app.model.loadFailed {
+            menu.addItem(action(Copy.resetState) { $0.model.resetCorruptState() })
+            menu.addItem(.separator())
+        }
         let settings = action(Copy.settings) { $0.showSettings() }
         settings.keyEquivalent = ","
         settings.keyEquivalentModifierMask = .command

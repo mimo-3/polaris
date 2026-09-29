@@ -52,7 +52,7 @@ struct SettingsView: View {
             }
             section("ログイン時に開く") {
                 Toggle("Mac にログインしたら Polaris を開く", isOn: $openAtLogin)
-                    .toggleStyle(.switch)
+                    .toggleStyle(PolarisSwitchStyle())
                     .font(PolarisTheme.Typography.task)
                     .onChange(of: openAtLogin) { _, on in
                         do { on ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
