@@ -138,6 +138,7 @@ struct NorthStarView: View {
                     .foregroundStyle(theme.ink)
                     .lineLimit(model.expanded ? 4 : 2)
                     .truncationMode(.tail)
+                    .padding(.vertical, PolarisTheme.Typography.northStarPadding)
                     .fixedSize(horizontal: false, vertical: true)
                     .onTapGesture(count: 2) { model.beginEditing(.northStar) }
                     .accessibilityLabel(text.isEmpty ? "北極星はまだない" : "北極星、\(text)")

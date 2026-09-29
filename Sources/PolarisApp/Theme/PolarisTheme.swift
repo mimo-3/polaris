@@ -55,8 +55,16 @@ enum PolarisTheme {
         static let meta = Font.system(size: 12, weight: .medium)
         static let northStar = northStarFont()
 
-        /// 行送り 27pt にするための lineSpacing。
-        static let northStarLineSpacing: CGFloat = 7
+        /// 北極星の行送り。書体の自然な行高（New York 20pt で 24pt）との差を lineSpacing と上下の余白で埋める。
+        static let northStarLineHeight: CGFloat = 27
+        static let northStarNaturalLineHeight: CGFloat = {
+            let font = northStarNSFont()
+            return ceil(font.ascender - font.descender + font.leading)
+        }()
+        static let northStarLineSpacing = max(0, northStarLineHeight - northStarNaturalLineHeight)
+        static let northStarPadding = max(0, (northStarLineHeight - northStarNaturalLineHeight) / 2)
+        /// voice は 13/18。system 13pt の自然な行高 16 との差。
+        static let voiceLineSpacing: CGFloat = 2
 
         /// New York にヒラギノ明朝 W6 をカスケードする。system(design: .serif) だけでは和文がゴシックに落ちる。
         static func northStarFont(size: CGFloat = 20) -> Font {
