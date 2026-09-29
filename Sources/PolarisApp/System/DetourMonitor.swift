@@ -19,6 +19,7 @@ final class DetourMonitor {
     }
 
     func start() {
+        stop()
         observer = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -30,7 +31,13 @@ final class DetourMonitor {
         }
     }
 
-    /// 「5分だけ」: そのアプリについて5分間は出さない。
+    /// 監視をやめる。作り直すときに呼ぶ。
+    func stop() {
+        if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        observer = nil
+    }
+
+    /// 「5分だけ見る」: そのアプリについて5分間は出さない。
     func snooze(_ bundleID: String) {
         lastShown[bundleID] = Date()
     }

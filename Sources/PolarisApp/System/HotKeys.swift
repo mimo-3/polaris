@@ -45,7 +45,11 @@ final class HotKeyCenter {
     func register(_ action: Action, handler: @escaping () -> Void) {
         installHandlerIfNeeded()
         handlers[action] = handler
-        if let old = refs[action] { UnregisterEventHotKey(old) }
+        if let old = refs[action] {
+            UnregisterEventHotKey(old)
+            refs[action] = nil
+        }
+        guard handlerInstalled else { conflicts.insert(action); return }
         let binding = action.defaultBinding
         var ref: EventHotKeyRef?
         let id = EventHotKeyID(signature: OSType(0x504C5253), id: action.rawValue) // 'PLRS'
@@ -65,9 +69,8 @@ final class HotKeyCenter {
 
     private func installHandlerIfNeeded() {
         guard !handlerInstalled else { return }
-        handlerInstalled = true
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ -> OSStatus in
+        let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, _ -> OSStatus in
             var hotKeyID = EventHotKeyID()
             let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                                            nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
@@ -77,5 +80,8 @@ final class HotKeyCenter {
             MainActor.assumeIsolated { HotKeyCenter.shared.fire(id) }
             return noErr
         }, 1, &spec, nil, nil)
+        // 入れられなかったら、どのショートカットも届かない。次の register で入れ直す。
+        handlerInstalled = status == noErr
+        if !handlerInstalled { conflicts = Set(Action.allCases) }
     }
 }
