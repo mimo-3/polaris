@@ -27,16 +27,18 @@ extension NoteModel {
     }
 
     /// 点→✓→取り消し線→退場→繰り上がり の順に見せてから完了にする。
+    /// 途中で対象が消えても書き込みに失敗しても、completing は必ず戻す。
     func complete(_ id: UUID) {
         guard completing == nil, let index = state.today.now.firstIndex(where: { $0.id == id }) else { return }
         let task = state.today.now[index]
         let next = index == 0 && state.today.now.count > 1 ? state.today.now[1].title : nil
         let finish: @MainActor () -> Void = { [weak self] in
-            self?.run({ try $0.completeTask(id: id) }) { [weak self] _ in
-                guard let self else { return }
-                self.completing = nil; self.completionPhase = 0
-                self.show(.undo(taskID: id, index: index, title: task.title, next: next))
-            }
+            self?.run({ try $0.completeTask(id: id) }, then: { [weak self] _ in
+                self?.show(.undo(taskID: id, index: index, title: task.title, next: next))
+            }, always: { [weak self] in
+                self?.completing = nil
+                self?.completionPhase = 0
+            })
         }
         if theme.reduceMotion {
             completing = id; completionPhase = 2
@@ -54,10 +56,13 @@ extension NoteModel {
         }
     }
 
+    /// 元の位置へ戻す。そのあいだにいまが埋まっていたら、あとでに入ったことを知らせる。
     func undo() {
-        guard case .undo(let id, let index, _, _) = transient else { return }
+        guard case .undo(let id, let index, let title, _) = transient else { return }
         clearTransient()
-        run { try $0.moveTask(id: id, to: .now, position: index) }
+        run({ try $0.moveTask(id: id, to: .now, position: index) }) { [weak self] placement in
+            if placement.overflowed { self?.show(.overflow(taskID: id, title: title, client: nil)) }
+        }
     }
 
     func makeLead(_ id: UUID) {
@@ -82,36 +87,33 @@ extension NoteModel {
         run { try $0.removeTask(id: id) }
     }
 
-    /// PolarisCore に改名の操作がないので、同じ場所へ入れ直す。出所は引き継ぐ。
+    /// 名前だけを変える。id と位置はストア側で保たれる。
     func rename(_ id: UUID, to title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let located: (TaskDestination, Int, Item)? = {
-            if let i = state.today.now.firstIndex(where: { $0.id == id }) { return (.now, i, state.today.now[i]) }
-            if let i = state.later.firstIndex(where: { $0.id == id }) { return (.later, i, state.later[i]) }
-            return nil
-        }()
-        guard let (destination, index, task) = located, task.title != trimmed else { return }
-        run { store in
-            try store.removeTask(id: id)
-            _ = try store.addTask(title: trimmed, to: destination, position: index, source: task.source)
-        }
+        guard !trimmed.isEmpty,
+              let task = (state.today.now + state.later).first(where: { $0.id == id }), task.title != trimmed else { return }
+        run { try $0.renameTask(id: id, title: trimmed) }
     }
 
     /// 「入れ替える…」: 選んだいまの項目をあとでの先頭へ、溢れた項目をいまの末尾へ。
     func beginSwap() {
         guard case .overflow(let id, _, _) = transient else { return }
         withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { swapping = id; pinned = true }
+        keyboardIndex = keyboardIndex.map { _ in focusOrder.firstIndex { if case .swapTarget = $0 { true } else { false } } ?? 0 }
     }
 
+    /// 本命とは入れ替えない（主役は1つ）。本命と替えたいときは行メニューの「本命にする」を使う。
     func swap(out outgoing: UUID) {
-        guard let incoming = swapping else { return }
+        guard let incoming = swapping, state.today.now.first?.id != outgoing else { return }
         swapping = nil
         clearTransient()
-        run { store in
-            _ = try store.moveTask(id: outgoing, to: .later, position: 0)
-            _ = try store.moveTask(id: incoming, to: .now)
-        }
+        run { try $0.swapTasks(out: outgoing, in: incoming) }
+    }
+
+    func cancelSwap() {
+        guard swapping != nil else { return }
+        withAnimation(PolarisTheme.Motion.voiceSwap(theme.reduceMotion)) { swapping = nil }
+        clearTransient()
     }
 
     // MARK: その場の編集
@@ -147,14 +149,53 @@ extension NoteModel {
     }
 
     // MARK: キーボード（付箋が key のとき）
-    /// 操作できる要素の並び: 北極星 → いまの各行 → 追加 → あとで。
+    /// 操作できる要素の並び: 北極星 → いまの各行 →（入れ替え中なら各行の入れ替え）→ 追加（全部完了ならその操作）
+    /// → あとで →（開いていれば）あとでの各行 → 声の行のボタン。
     var focusOrder: [FocusTarget] {
-        [.northStar] + state.today.now.map { .row($0.id) } + [.add, .later]
+        var order: [FocusTarget] = [.northStar] + state.today.now.map { .row($0.id) }
+        if swapping != nil { order += state.today.now.dropFirst().map { .swapTarget($0.id) } }
+        if isAllDone && editing != .add {
+            order += (0..<allDoneActionCount).map { .allDoneAction($0) }
+        } else {
+            order.append(.add)
+        }
+        order.append(.later)
+        if laterOpen { order += state.later.map { .laterRow($0.id) } }
+        order += (0..<voiceActionCount).map { .voiceAction($0) }
+        return order
+    }
+
+    /// 全部完了のときの操作: あとでが空なら［＋ 追加］［今日はここまで］、あれば［今日はここまで］だけ。
+    var allDoneActionCount: Int { state.later.isEmpty ? 2 : 1 }
+
+    func performAllDoneAction(_ index: Int) {
+        if state.later.isEmpty && index == 0 { beginEditing(.add) } else { closeDay() }
+    }
+
+    /// 声の行に出ているボタンの数（左から順）。透過中は出さない。
+    var voiceActionCount: Int {
+        guard !clickThrough || optionPeek else { return 0 }
+        switch voice {
+        case .mode, .transient(.error): return 0
+        case .detour: return 2
+        case .transient(.undo), .transient(.overflow), .banner: return 1
+        }
+    }
+
+    func performVoiceAction(_ index: Int) {
+        switch voice {
+        case .detour(let detour):
+            if index == 0 { DetourActions.hide(detour, model: self) } else { DetourActions.snooze(detour, model: self) }
+        case .transient(.undo): undo()
+        case .transient(.overflow): swapping == nil ? beginSwap() : cancelSwap()
+        case .banner: dismissBanner()
+        case .mode, .transient(.error): break
+        }
     }
 
     func moveFocus(_ delta: Int) {
         let order = focusOrder
-        let current = keyboardIndex ?? (delta > 0 ? -1 : order.count)
+        let current = keyboardIndex.map { min($0, order.count - 1) } ?? (delta > 0 ? -1 : order.count)
         keyboardIndex = min(max(current + delta, 0), order.count - 1)
     }
 
@@ -162,25 +203,30 @@ extension NoteModel {
         guard isKey, let keyboardIndex, focusOrder.indices.contains(keyboardIndex) else { return nil }
         return focusOrder[keyboardIndex]
     }
+
+    /// ⌃⌥O で最初に置く場所。寄り道が出ていれば［{App}を隠す］、なければ本命の行。
+    var initialKeyboardIndex: Int {
+        if case .detour = voice, let i = focusOrder.firstIndex(of: .voiceAction(0)) { return i }
+        return state.today.now.isEmpty ? 0 : 1
+    }
 }
 
 enum FocusTarget: Equatable {
     case northStar, row(UUID), add, later
+    case voiceAction(Int), laterRow(UUID), swapTarget(UUID), allDoneAction(Int)
 }
 
 // MARK: - 朝の支度・key を外すとき
 extension NoteModel {
     /// 支度の Step 3。選ばなかったいまの項目はあとでの先頭へ戻し、選んだ順にいまへ入れる。
     func applyMorning(selected: [UUID]) {
-        run { store in
-            let current = try store.read()
-            for task in current.today.now.reversed() where !selected.contains(task.id) {
-                _ = try store.moveTask(id: task.id, to: .later, position: 0)
-            }
-            for (index, id) in selected.prefix(3).enumerated() {
-                _ = try store.moveTask(id: id, to: .now, position: index)
-            }
-        }
+        let chosen = Array(selected.prefix(3))
+        run { try $0.arrangeMorning(selected: chosen) }
+    }
+
+    /// 読めない state.json を退避して作り直す（メニューから）。
+    func resetCorruptState() {
+        run { _ = try $0.resetCorruptState() }
     }
 
     /// 付箋が key を失ったら、入力中の内容は捨てずに保存して閉じる。
@@ -207,22 +253,39 @@ extension NoteModel {
         case .downArrow: moveFocus(1)
         case .tab: moveFocus(modifiers.contains(.shift) ? -1 : 1)
         case .space:
-            if let rowID { complete(rowID) } else { return false }
+            if let rowID { complete(rowID) } else { return activate(target) }
         case .return:
             switch target {
             case .northStar: beginEditing(.northStar)
             case .row(let id): beginEditing(.rename(id))
             case .add: beginEditing(.add)
             case .later: toggleLater()
-            case nil: return false
+            default: return activate(target)
             }
         case .delete:
-            guard let rowID else { return false }
-            if command { delete(rowID) } else { sendLater(rowID) }
+            if let rowID {
+                if command { delete(rowID) } else { sendLater(rowID) }
+            } else if case .laterRow(let id) = target, command {
+                delete(id)
+            } else { return false }
+        case .escape where swapping != nil:
+            cancelSwap()
         default:
             if characters == "l" && !command { toggleLater() }
             else if characters == "z" && command { undo() }
             else { return false }
+        }
+        return true
+    }
+
+    /// 行以外のボタン（声の行・入れ替え・あとでの行・全部完了）を ⏎ / Space で押す。
+    private func activate(_ target: FocusTarget?) -> Bool {
+        switch target {
+        case .voiceAction(let i): performVoiceAction(i)
+        case .swapTarget(let id): swap(out: id)
+        case .laterRow(let id): moveToNow(id)
+        case .allDoneAction(let i): performAllDoneAction(i)
+        default: return false
         }
         return true
     }
