@@ -18,18 +18,21 @@ public struct PolarisStore: Sendable {
     public func read() throws -> State { try transaction { _ in () }.state }
 
     @discardableResult public func setNorthStar(_ text: String) throws -> State {
-        try transaction { $0.today.northStar = text }.state
+        let text = try TextRules.checked(text, max: TextRules.northStarMax, label: "北極星")
+        return try transaction { $0.today.northStar = text }.state
     }
     @discardableResult public func setMode(_ id: String) throws -> State {
         guard let mode = Mode.defaults.first(where: { $0.id == id }) else { throw PolarisError.unknownMode }
         return try transaction { $0.today.mode = mode }.state
     }
     @discardableResult public func setNote(_ text: String?) throws -> State {
-        try transaction { $0.today.note = text }.state
+        let text = try text.map { try TextRules.checked($0, max: TextRules.noteMax, label: "メモ") }
+        return try transaction { $0.today.note = text }.state
     }
     public func addTask(title: String, to: TaskDestination = .later, position: Int? = nil, source: String = "user") throws -> Placement {
-        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw PolarisError.invalidInput("タイトルは空にできません") }
-        guard source == "user" || (source.hasPrefix("mcp:") && source.count > 4) else { throw PolarisError.invalidInput("不正なsourceです") }
+        let title = try checkedTitle(title)
+        guard source == "user" || (source.hasPrefix("mcp:") && source.count > 4 && source.count <= 4 + TextRules.clientMax
+                                   && TextRules.clean(source) == source) else { throw PolarisError.invalidInput("不正なsourceです") }
         return try transaction { state in
             try place(Task(title: title, createdAt: clock(), source: source), to: to, position: position, in: &state)
         }.value
@@ -50,73 +53,191 @@ public struct PolarisStore: Sendable {
     @discardableResult public func removeTask(id: UUID) throws -> State {
         try transaction { state in _ = try remove(id, from: &state, includeDone: true) }.state
     }
+    /// 名前だけを変える。id・作成日時・出所・位置はそのまま。
+    @discardableResult public func renameTask(id: UUID, title: String) throws -> State {
+        let title = try checkedTitle(title)
+        return try transaction { state in
+            if let i = state.today.now.firstIndex(where: { $0.id == id }) { state.today.now[i].title = title }
+            else if let i = state.later.firstIndex(where: { $0.id == id }) { state.later[i].title = title }
+            else if let i = state.today.done.firstIndex(where: { $0.id == id }) { state.today.done[i].title = title }
+            else { throw PolarisError.taskNotFound }
+        }.state
+    }
+    /// いまの `outgoing` をあとでの先頭へ、あとでの `incoming` をいまの末尾へ。1回の書き込みで行う。
+    @discardableResult public func swapTasks(out outgoing: UUID, in incoming: UUID) throws -> State {
+        try transaction { state in
+            guard let o = state.today.now.firstIndex(where: { $0.id == outgoing }),
+                  let i = state.later.firstIndex(where: { $0.id == incoming }) else { throw PolarisError.taskNotFound }
+            let out = state.today.now.remove(at: o)
+            let into = state.later.remove(at: i)
+            state.today.now.append(into)
+            state.later.insert(out, at: 0)
+        }.state
+    }
+    /// 朝の支度の確定。選んだ順にいまへ入れ、選ばなかったいまの項目は順序を保ってあとでの先頭へ戻す。
+    /// 見つからない id（そのあいだに消されたもの）は飛ばす。
+    @discardableResult public func arrangeMorning(selected: [UUID]) throws -> State {
+        var unique: [UUID] = []
+        for id in selected where !unique.contains(id) { unique.append(id) }
+        guard unique.count <= 3 else { throw PolarisError.invalidInput("いまは3件までです") }
+        return try transaction { state in
+            let pool = state.today.now + state.later
+            let chosen = unique.compactMap { id in pool.first { $0.id == id } }
+            let ids = Set(chosen.map(\.id))
+            let returned = state.today.now.filter { !ids.contains($0.id) }
+            state.later = returned + state.later.filter { !ids.contains($0.id) }
+            state.today.now = chosen
+        }.state
+    }
     @discardableResult public func nudge(text: String, from: String, ttlMinutes: Double = 5) throws -> State {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              ttlMinutes.isFinite, ttlMinutes > 0, ttlMinutes <= 1440 else {
+        let text = try TextRules.checked(text, max: TextRules.bannerMax, label: "text")
+        guard !text.isEmpty, ttlMinutes.isFinite, ttlMinutes > 0, ttlMinutes <= 1440 else {
             throw PolarisError.invalidInput("textと0超〜1440以下のttl_minutesを指定してください")
         }
+        let from = TextRules.clientName(from)
         return try transaction { $0.banner = Banner(text: text, from: from, expiresAt: clock().addingTimeInterval(ttlMinutes * 60)) }.state
+    }
+    /// 読めない state.json を state.corrupt-<日時>.json に退避して、新しい状態で始め直す。
+    /// 読める状態なら何もしない。戻り値は退避先（退避しなかったら nil）。
+    @discardableResult public func resetCorruptState() throws -> URL? {
+        try withLock {
+            guard FileManager.default.fileExists(atPath: stateURL.path) else { return nil }
+            if (try? validate(decode())) != nil { return nil }
+            let stamp = ISO8601DateFormatter().string(from: clock()).replacingOccurrences(of: ":", with: "")
+            let backup = homeURL.appendingPathComponent("state.corrupt-\(stamp).json")
+            guard Darwin.rename(stateURL.path, backup.path) == 0 else { throw posixError() }
+            var fresh = State(today: Day(date: dateKey(clock())))
+            fresh.revision = 1
+            try write(fresh)
+            return backup
+        }
     }
     public func history(days: Int = 90) throws -> [Day] {
         guard (1...90).contains(days) else { throw PolarisError.invalidInput("daysは1〜90です") }
         return Array(try read().history.suffix(days))
     }
 
-    /// Emits initial state and subsequent revisions. Directory watching survives atomic rename.
-    /// A one-second timer also handles local midnight and banner expiration. Cancellation closes sources.
-    public func changes() -> AsyncThrowingStream<State, Error> {
-        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+    /// Emits the initial state and every later revision. A failed read is emitted as `.failure` and the stream
+    /// stays open, so the next successful read recovers on its own. Directory watching survives atomic rename.
+    /// A one-second timer only stats state.json; it reads when the file changed or a boundary (local midnight,
+    /// banner expiry) has passed. Cancellation closes sources.
+    public func changes() -> AsyncStream<Result<State, Error>> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             do {
-                try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+                try makeHome()
                 let fd = Darwin.open(homeURL.path, O_EVTONLY | O_CLOEXEC)
                 guard fd >= 0 else { throw posixError() }
                 let queue = DispatchQueue(label: "dev.mimo.polaris.watch")
                 let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: queue)
                 let timer = DispatchSource.makeTimerSource(queue: queue)
                 let observer = StateObserver(store: self, continuation: continuation)
-                source.setEventHandler { observer.emit() }
+                source.setEventHandler { observer.check(force: false) }
                 source.setCancelHandler { Darwin.close(fd) }
-                timer.schedule(deadline: .now(), repeating: 1)
-                timer.setEventHandler { observer.emit() }
+                timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(250))
+                timer.setEventHandler { observer.check(force: false) }
                 let lifetime = WatchLifetime(source: source, timer: timer)
                 continuation.onTermination = { _ in lifetime.cancel() }
+                queue.async { observer.check(force: true) }
                 source.resume(); timer.resume()
-            } catch { continuation.finish(throwing: error) }
+            } catch {
+                continuation.yield(.failure(error))
+                continuation.finish()
+            }
         }
     }
 
+    /// 次に読み直すべき時刻: 翌日0時か banner の期限の早いほう。
+    func nextBoundary(for state: State) -> Date {
+        let now = clock()
+        let midnight = calendar.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0, second: 0),
+                                         matchingPolicy: .nextTime) ?? now.addingTimeInterval(3600)
+        guard let expiry = state.banner?.expiresAt else { return midnight }
+        return min(midnight, expiry)
+    }
+    func currentTime() -> Date { clock() }
+
+    /// state.json の inode・サイズ・更新時刻。無ければ nil。
+    func fileSignature() -> [Int64]? {
+        var info = stat()
+        guard lstat(stateURL.path, &info) == 0 else { return nil }
+        return [Int64(info.st_ino), Int64(info.st_size), Int64(info.st_mtimespec.tv_sec), Int64(info.st_mtimespec.tv_nsec)]
+    }
+
     private func transaction<T>(_ body: (inout State) throws -> T) throws -> (state: State, value: T) {
-        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
-        let fd = Darwin.open(homeURL.appendingPathComponent("state.lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        try withLock {
+            let exists = FileManager.default.fileExists(atPath: stateURL.path)
+            var state = try exists ? decode() : State(today: Day(date: dateKey(clock())))
+            try validate(state)
+            let original = state
+            rollover(&state, at: clock())
+            let value = try body(&state)
+            try validate(state)
+            if !exists || state != original {
+                guard state.revision < Int.max else { throw PolarisError.invalidState("revisionが上限に達しました") }
+                state.revision += 1
+                try write(state)
+            }
+            return (state, value)
+        }
+    }
+
+    private func withLock<T>(_ body: () throws -> T) throws -> T {
+        try makeHome()
+        let fd = Darwin.open(homeURL.appendingPathComponent("state.lock").path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { throw posixError() }
         defer { Darwin.close(fd) }
         while flock(fd, LOCK_EX) != 0 { if errno != EINTR { throw posixError() } }
         defer { _ = flock(fd, LOCK_UN) }
-        let exists = FileManager.default.fileExists(atPath: stateURL.path)
+        removeStaleTemporaries()
+        return try body()
+    }
+
+    private func makeHome() throws {
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+    }
+
+    private func decode() throws -> State {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        var state = try exists ? decoder.decode(State.self, from: Data(contentsOf: stateURL)) : State(today: Day(date: dateKey(clock())))
-        try validate(state)
-        let original = state
-        rollover(&state, at: clock())
-        let value = try body(&state)
-        try validate(state)
-        if !exists || state != original {
-            guard state.revision < Int.max else { throw PolarisError.invalidState("revisionが上限に達しました") }
-            state.revision += 1
-            try write(state)
+        return try decoder.decode(State.self, from: Data(contentsOf: stateURL))
+    }
+
+    private func checkedTitle(_ title: String) throws -> String {
+        let title = try TextRules.checked(title, max: TextRules.titleMax, label: "タイトル")
+        guard !title.isEmpty else { throw PolarisError.invalidInput("タイトルは空にできません") }
+        return title
+    }
+
+    /// 書き込み途中で落ちたときの一時ファイルを、1時間以上経っていれば消す。ロック中にだけ呼ぶ。
+    private func removeStaleTemporaries() {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: homeURL.path) else { return }
+        let limit = Date().addingTimeInterval(-3600)
+        for name in names where name.hasPrefix("polaris-backend-") && name.hasSuffix(".tmp") {
+            let url = homeURL.appendingPathComponent(name)
+            if let modified = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date, modified < limit {
+                try? fm.removeItem(at: url)
+            }
         }
-        return (state, value)
     }
 
     private func rollover(_ state: inout State, at now: Date) {
         let key = dateKey(now)
         if state.today.date < key {
-            state.history.append(state.today)
+            var archived = state.today
+            // 時計が戻ってから進んだときは同じ日付が既にある。済は足し合わせ、ほかは新しいほうを使う。
+            if let i = state.history.firstIndex(where: { $0.date == archived.date }) {
+                let ids = Set(archived.done.map(\.id))
+                archived.done = state.history[i].done.filter { !ids.contains($0.id) } + archived.done
+                state.history.remove(at: i)
+            }
+            state.history.append(archived)
             state.later = state.today.now + state.later
             state.today = Day(date: key)
         }
         let cutoff = dateKey(calendar.date(byAdding: .day, value: -90, to: now) ?? now)
-        state.history = Array(state.history.filter { $0.date >= cutoff && $0.date < key }.suffix(90))
+        state.history = Array(state.history.filter { $0.date >= cutoff }
+            .sorted { $0.date < $1.date }.suffix(90))
         if let banner = state.banner, banner.expiresAt <= now { state.banner = nil }
     }
     private func dateKey(_ date: Date) -> String {
@@ -166,6 +287,9 @@ public struct PolarisStore: Sendable {
         }
         guard fsync(fd) == 0 else { throw posixError() }
         guard Darwin.rename(temp.path, stateURL.path) == 0 else { throw posixError() }
+        // rename 自体を電源断から守る。
+        let dir = Darwin.open(homeURL.path, O_RDONLY | O_CLOEXEC)
+        if dir >= 0 { _ = fsync(dir); Darwin.close(dir) }
     }
     private func posixError() -> POSIXError { POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 }
@@ -177,16 +301,33 @@ private final class WatchLifetime: @unchecked Sendable {
     init(source: any DispatchSourceFileSystemObject, timer: any DispatchSourceTimer) { self.source = source; self.timer = timer }
     func cancel() { source.cancel(); timer.cancel() }
 }
-// emit is confined to the observer's serial DispatchQueue.
+// check is confined to the observer's serial DispatchQueue.
 private final class StateObserver: @unchecked Sendable {
     let store: PolarisStore
-    let continuation: AsyncThrowingStream<State, Error>.Continuation
+    let continuation: AsyncStream<Result<State, Error>>.Continuation
     var revision: Int?
-    init(store: PolarisStore, continuation: AsyncThrowingStream<State, Error>.Continuation) { self.store = store; self.continuation = continuation }
-    func emit() {
+    var signature: [Int64]?
+    var boundary = Date.distantPast
+    var failing = false
+    init(store: PolarisStore, continuation: AsyncStream<Result<State, Error>>.Continuation) {
+        self.store = store; self.continuation = continuation
+    }
+    func check(force: Bool) {
+        let current = store.fileSignature()
+        guard force || failing || current != signature || store.currentTime() >= boundary else { return }
         do {
             let state = try store.read()
-            if state.revision != revision { revision = state.revision; continuation.yield(state) }
-        } catch { continuation.finish(throwing: error) }
+            // read がロールオーバーで書いた分も含めて覚える。
+            signature = store.fileSignature()
+            boundary = store.nextBoundary(for: state)
+            if failing || state.revision != revision {
+                failing = false
+                revision = state.revision
+                continuation.yield(.success(state))
+            }
+        } catch {
+            signature = current
+            if !failing { failing = true; continuation.yield(.failure(error)) }
+        }
     }
 }
