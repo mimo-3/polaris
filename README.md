@@ -2,7 +2,7 @@
 
 今日いちばん大事なことを、画面のいちばん手前に置くmacOSアプリです。北極星を1文、いま取り組むことを最大3件に絞り、それ以外は「あとで」に残します。MCPからも同じ状態を読み書きできます。
 
-現在のアプリはPolarisCoreを読み込む最小スタブです。常時最前面の付箋UIとスナップショット描画は別途実装予定です。製品仕様は [docs/product.md](docs/product.md)、画面仕様は [docs/design.md](docs/design.md) を参照してください。
+アプリは全Space・フルスクリーンの上に出る小さな付箋（NSPanel）と、メニューバーのアイコンで動きます。ショートカットは ⌃⌥P（北極星を書き換える）、⌃⌥N（タスクを追加）、⌃⌥O（付箋を操作する）、⌃⌥H（隠す）、⌃⌥T（クリック透過）です。製品仕様は [docs/product.md](docs/product.md)、画面仕様は [docs/design.md](docs/design.md) を参照してください。
 
 ## ビルド
 
@@ -17,7 +17,7 @@ open build/Polaris.app
 
 `make build` は `swift build` を実行します。`make test` はSwift Testingのテストを実行します。`make app` はreleaseビルドを `build/Polaris.app` にまとめ、Developer ID Application証明書があればその証明書で、なければアドホック署名します。公証は行いません。アイコンを追加する場合は `Resources/Polaris.icns` を配置してください。
 
-`make snapshots` はアプリに `--render-snapshots snapshots/` を渡します。現段階のスタブはそのまま終了し、画像は作りません。
+`make snapshots` はアプリに `--render-snapshots snapshots/` を渡し、主要な状態をライト・ダーク（一部はコントラスト強調とモード違いも）でPNGに書き出して終了します。ウィンドウは出しません。ImageRendererは素材を描けないので、地は不透明の `surface` で近似します。
 
 ```sh
 make install
