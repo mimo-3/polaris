@@ -19,26 +19,35 @@ enum Copy {
     static let rename = "名前を変える"
     static let delete = "削除"
     static let allDone = "今日の分は済んだ"
-    static let pickFromLater = "あとでから1件選ぶ"
     static let closeDay = "今日はここまで"
     static func dayClosed(_ mode: String) -> String { "\(mode)・今日はここまで" }
 
     // 声の行
-    static let completed = "完了にした。"
+    // 声の行は1行に収める。タイトルは「と」の間で末尾を省略するので、前後に分けて持つ。
+    static let quoteOpen = "「"
+    static let completedTail = "」を完了にした。"
+    static func completed(_ title: String) -> String { "「\(title)」を完了にした。" }
     static let undo = "取り消す"
+    static let overflowTail = "」はあとでへ"
     static func overflow(_ title: String) -> String { "「\(title)」はあとでに入れた。" }
-    static func overflowMCP(_ title: String, _ client: String) -> String { "「\(title)」はあとでに入れた（\(client) から）。" }
-    static let nowFull = "いまは3件で満杯。"
+    static func fromClient(_ client: String) -> String { "（\(client) から）" }
     static let swap = "入れ替える…"
-    static let swapWithThis = "これと入れ替える"
+    static let swapPick = "入れ替える行を選ぶ"
+    static let swapCancel = "やめる"
+    static let swapWithThis = "入れ替える"
+    /// 声の行の寄り道。「今日は」を省いて1行に収める。
     static func detour(_ mode: Mode) -> String {
-        mode.id == "rest" ? "今日は\(mode.label)。閉じる？" : "今日は\(mode.label)。戻る？"
+        mode.id == "rest" ? "\(mode.label)。離れる？" : "\(mode.label)。戻る？"
     }
     static func hideApp(_ app: String) -> String { "\(app)を隠す" }
-    static let fiveMinutes = "5分だけ"
+    static let fiveMinutes = "5分だけ見る"
+    static let fiveMinutesShort = "5分"
     static func from(_ client: String) -> String { "\(client) から" }
+    static func bannerFrom(_ client: String) -> String { " · \(client)" }
+    static func dismissBanner(_ client: String) -> String { "\(client) からのメッセージを閉じる" }
     static let saveFailed = "保存できなかった。~/.polaris に書き込めるか確認して。"
-    static let loadFailed = "今日の内容を読めなかった。~/.polaris/state.json を確認して。"
+    static let loadFailed = "今日の内容を読めなかった。メニューの「状態を作り直す」で戻せる。"
+    static let resetState = "状態を作り直す（読めないファイルは退避する）"
     static let fromYesterday = "昨日から"
 
     // 朝の支度
@@ -51,7 +60,7 @@ enum Copy {
     static let step2Title = "今日いちばん大事なことを1文で"
     static let step2Placeholder = "例: 決済APIの移行を本番に出す"
     static let step2Hint = "1文で書けないなら、まだ絞れていない。"
-    static let carryOver = "昨日の北極星を引き継ぐ"
+    static let carryOver = "昨日の北極星を引き継ぐ："
     static let pickThree = "いまの3件を選ぶ"
     static let skipNorthStar = "北極星なしで進む"
     static let step3Title = "いまやることを3つまで"
@@ -66,7 +75,7 @@ enum Copy {
     static let addLabel = "追加"
     static func toNow(_ remaining: Int) -> String { "いまに入れる（残り\(remaining)枠）" }
     static let toLaterFull = "あとでに入れる（いまは3件で満杯）"
-    static let quickHints = ["⏎ 保存する", "⌥⏎ あとでに入れる", "⎋ 閉じる"]
+    static let quickHints = ["⏎ 保存する", "⌥⏎ あとでに入れる", "esc 閉じる"]
 
     // メニューバー
     static let hideNote = "付箋を隠す"
