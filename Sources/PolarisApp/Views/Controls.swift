@@ -90,11 +90,14 @@ extension View {
 // MARK: - ボタン
 
 /// 声の行の小ボタン（h24 r6）。outlined は ink 1pt の枠、そうでなければ文字だけ。
+/// quiet は ink2 の文字（行の右に出す控えめな操作）。focused はキーボードのフォーカスリング。
 struct SmallButtonStyle: ButtonStyle {
     var outlined = false
+    var focused = false
+    var quiet = false
 
     func makeBody(configuration: Configuration) -> some View {
-        SmallButtonBody(configuration: configuration, outlined: outlined)
+        SmallButtonBody(configuration: configuration, outlined: outlined, focused: focused, quiet: quiet)
     }
 }
 
@@ -102,6 +105,8 @@ struct SmallButtonStyle: ButtonStyle {
 private struct SmallButtonBody: View {
     var configuration: ButtonStyleConfiguration
     var outlined: Bool
+    var focused: Bool
+    var quiet: Bool
     @Environment(\.polaris) private var theme
     @Environment(\.isEnabled) private var enabled
 
@@ -109,30 +114,45 @@ private struct SmallButtonBody: View {
         let shape = RoundedRectangle(cornerRadius: PolarisTheme.Radius.small, style: .continuous)
         configuration.label
             .font(PolarisTheme.Typography.button)
-            .foregroundStyle(enabled ? theme.ink : theme.ink2)
+            .foregroundStyle(enabled && !quiet ? theme.ink : theme.ink2)
             .lineLimit(1)
             .padding(.horizontal, outlined ? 10 : 6)
             .frame(minHeight: 24)
             .background(shape.fill(configuration.isPressed ? PolarisTheme.Palette.pressFill : .clear))
             .overlay { if outlined { shape.strokeBorder(enabled ? theme.ink : theme.ink2, lineWidth: 1) } }
             .contentShape(shape)
+            .focusRing(focused, radius: PolarisTheme.Radius.small)
             .fixedSize()
     }
 }
 
-/// シートの主ボタン（h32 r8、地 ink / 文字 surface）。
+/// シートの主ボタン（h32 r8、地 ink / 文字 surface）。無効のときは地を hairline 相当に落とす。
 struct PrimaryButtonStyle: ButtonStyle {
+    var focused = false
+
     func makeBody(configuration: Configuration) -> some View {
+        PrimaryButtonBody(configuration: configuration, focused: focused)
+    }
+}
+
+private struct PrimaryButtonBody: View {
+    var configuration: ButtonStyleConfiguration
+    var focused: Bool
+    @Environment(\.polaris) private var theme
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
         configuration.label
             .font(PolarisTheme.Typography.button)
-            .foregroundStyle(PolarisTheme.Palette.surface)
+            .foregroundStyle(enabled ? PolarisTheme.Palette.surface : theme.ink2)
             .lineLimit(1)
             .padding(.horizontal, 14)
             .frame(height: 32)
             .background(RoundedRectangle(cornerRadius: PolarisTheme.Radius.button, style: .continuous)
-                .fill(PolarisTheme.Palette.ink))
+                .fill(enabled ? PolarisTheme.Palette.ink : PolarisTheme.Palette.pressFill))
             .opacity(configuration.isPressed ? 0.85 : 1)
             .contentShape(Rectangle())
+            .focusRing(focused, radius: PolarisTheme.Radius.button)
     }
 }
 
@@ -178,6 +198,42 @@ struct MetaText: View {
             .monospacedDigit()
             .foregroundStyle(color ?? theme.ink2)
     }
+}
+
+/// キーキャップ風の数字（16×16 r4、1pt hairline）。
+struct KeyCap: View {
+    var text: String
+    @Environment(\.polaris) private var theme
+
+    var body: some View {
+        Text(text)
+            .font(PolarisTheme.Typography.meta)
+            .monospacedDigit()
+            .foregroundStyle(theme.ink2)
+            .frame(width: 16, height: 16)
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .strokeBorder(theme.increaseContrast ? PolarisTheme.Palette.HighContrast.border : PolarisTheme.Palette.hairline,
+                              lineWidth: 1))
+    }
+}
+
+/// 入力欄の器（r6、1pt hairline、フォーカス中は star 2pt、内側 8/10）。支度とクイック編集で共通。
+struct FieldBox: ViewModifier {
+    var focused: Bool
+    @Environment(\.polaris) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .overlay(RoundedRectangle(cornerRadius: PolarisTheme.Radius.small, style: .continuous)
+                .strokeBorder(focused ? theme.star : (theme.increaseContrast ? PolarisTheme.Palette.HighContrast.border
+                                                                              : PolarisTheme.Palette.hairline),
+                              lineWidth: focused ? 2 : 1))
+    }
+}
+
+extension View {
+    func fieldBox(focused: Bool) -> some View { modifier(FieldBox(focused: focused)) }
 }
 
 /// 0.5pt の区切り線。

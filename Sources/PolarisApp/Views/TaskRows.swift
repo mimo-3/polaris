@@ -97,8 +97,13 @@ struct TaskRow: View {
 
     @ViewBuilder private var trailing: some View {
         if model.swapping != nil {
-            Button(Copy.swapWithThis) { model.swap(out: task.id) }
-                .buttonStyle(SmallButtonStyle())
+            // 本命とは入れ替えない。ラベルは控えめにして、タイトルを削らない。
+            if !isLead {
+                Button(Copy.swapWithThis) { model.swap(out: task.id) }
+                    .buttonStyle(SmallButtonStyle(focused: model.focusedTarget == .swapTarget(task.id),
+                                                  quiet: !(hovered || model.focusedTarget == .swapTarget(task.id))))
+                    .accessibilityLabel("\(task.title)と入れ替える")
+            }
         } else if hovered && !renaming && theme.snapshot {
             Image(systemName: "ellipsis")
                 .font(.system(size: 12, weight: .semibold))
