@@ -36,7 +36,7 @@ python3 scripts/polaris-backend-smoke.py
 
 ## データとMCP
 
-状態は `~/.polaris/state.json` に保存します。`POLARIS_HOME` にディレクトリを指定すると保存先を切り替えられます。アプリとMCPを同じ状態につなぐ場合は同じ保存先を指定してください。
+状態は `~/.polaris/state.json` に保存します。`POLARIS_HOME` にディレクトリを指定すると保存先を切り替えられます。アプリとMCPを同じ状態につなぐ場合は同じ保存先を指定してください。state.json が壊れて読めないときは、メニューバーの「状態を作り直す」で `state.corrupt-<日時>.json` に退避して新しく始められます。
 
 - JSONの日時はISO 8601、日のキーはローカル時刻の `YYYY-MM-DD` です。
 - `state.lock` をflockでロックし、最新の状態に変更を適用して、一時ファイルからrenameします。実際に状態が変わった書き込みでrevisionが1増えます。初回作成はrevision 1です。
@@ -48,7 +48,7 @@ python3 scripts/polaris-backend-smoke.py
 
 MCPは改行区切りJSON-RPC 2.0のstdioサーバーです。標準出力には応答だけを書きます。[MCPのinitializeとツール応答形式](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/schema.mdx)を利用し、2024-11-05、2025-03-26、2025-06-18をネゴシエートできます。
 
-11個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。引数の詳細は `tools/list` のinputSchemaで取得できます。追加先はlaterが既定です。ユーザーの指示なしにnowを入れ替えないでください。
+12個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。タイトルと北極星は200字、nudge の text は280字までです。引数の詳細は `tools/list` のinputSchemaで取得できます。追加先はlaterが既定です。ユーザーの指示なしにnowを入れ替えないでください。
 
 ## UIからの購読
 
