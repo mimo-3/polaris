@@ -58,9 +58,9 @@ struct NoteCard: View {
             if !today.done.isEmpty {
                 AllDoneRow()
             } else if today.northStar.isEmpty {
-                LeadButton(title: Copy.startMorning) { model.requestMorning() }
+                LeadButton(title: Copy.startMorning, glyph: .start) { model.requestMorning() }
             } else {
-                LeadButton(title: Copy.addLead) { model.beginEditing(.add) }
+                LeadButton(title: Copy.addLead, glyph: .add) { model.beginEditing(.add) }
             }
         } else {
             let rows = model.expanded ? Array(today.now.enumerated()) : [(0, today.now[0])]
@@ -96,19 +96,17 @@ struct NoteCard: View {
         }
     }
 
+    /// 付箋のほうから次を勧めない。強い見た目は「今日はここまで」だけにする。
+    /// あとでから選びたいときは、すぐ下の「あとで n ›」から開く。
     private var allDoneActions: some View {
         HStack(spacing: S.s) {
             if model.state.later.isEmpty {
                 Button(Copy.add) { model.beginEditing(.add) }
-                    .buttonStyle(SmallButtonStyle(outlined: true))
-            } else {
-                Button(Copy.pickFromLater) {
-                    if !model.laterOpen { model.toggleLater() }
-                }
-                .buttonStyle(SmallButtonStyle(outlined: true))
+                    .buttonStyle(SmallButtonStyle(focused: model.focusedTarget == .allDoneAction(0)))
             }
+            let closeIndex = model.allDoneActionCount - 1
             Button(Copy.closeDay) { model.closeDay() }
-                .buttonStyle(SmallButtonStyle())
+                .buttonStyle(SmallButtonStyle(outlined: true, focused: model.focusedTarget == .allDoneAction(closeIndex)))
         }
     }
 }
@@ -132,7 +130,7 @@ struct NorthStarView: View {
                     .onExitCommand { model.endEditing() }
             } else {
                 let text = model.today.northStar
-                Text(text.isEmpty ? Copy.northStarEmpty : text)
+                Text(text.isEmpty ? Copy.northStarEmpty : WordWrap.japanese(text))
                     .font(PolarisTheme.Typography.northStar)
                     .lineSpacing(PolarisTheme.Typography.northStarLineSpacing)
                     .foregroundStyle(theme.ink)
@@ -151,16 +149,28 @@ struct NorthStarView: View {
     }
 }
 
-/// 中空のリング＋taskLead のボタン（朝の支度を始める / 本命を追加する）。まだ光っていない。
+/// 空のときの2段目のボタン。リングはタスク専用の記号なので使わない。
+/// 本命を追加する は ＋、朝の支度を始める は →。どちらも点と同じ x=0〜8 に置く。
 private struct LeadButton: View {
+    enum Glyph { case add, start }
     var title: String
+    var glyph: Glyph
     var action: () -> Void
     @Environment(\.polaris) private var theme
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                StarDot(style: .hollow)
+                Group {
+                    switch glyph {
+                    case .add: Image(systemName: "plus").font(.system(size: 12, weight: .semibold))
+                    case .start: Image(systemName: "arrow.right").font(.system(size: 11, weight: .semibold))
+                    }
+                }
+                .foregroundStyle(theme.ink)
+                .fixedSize()
+                .frame(width: PolarisTheme.Metrics.starDot, height: PolarisTheme.Metrics.rowHeight)
+                .accessibilityHidden(true)
                 Text(title)
                     .font(PolarisTheme.Typography.taskLead)
                     .foregroundStyle(theme.ink)
