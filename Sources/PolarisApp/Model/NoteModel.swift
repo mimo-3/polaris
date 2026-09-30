@@ -173,6 +173,7 @@ final class NoteModel {
         guard !settling else { return }
         var undoShowing = false
         if case .undo = transient { undoShowing = true }
+        if case .starEnded = transient { undoShowing = true }
         if let event = OverflowNotice.event(from: previous, to: next, now: Date(), settling: settling,
                                             busy: swapping != nil || undoShowing) {
             show(.overflow(taskID: event.taskID, title: event.title, client: Copy.clientName(event.source)))
@@ -207,6 +208,7 @@ final class NoteModel {
                 always()
                 // そのあいだに消されたものを操作しただけなら、保存の失敗ではない。
                 if case PolarisError.taskNotFound = error { return }
+                if case PolarisError.northStarNotFound = error { return }
                 self.show(.error(Copy.saveFailed))
             }
         }
@@ -221,6 +223,7 @@ final class NoteModel {
             announce(next.map { "\(title)を完了にした。次の本命は\($0)" } ?? "\(title)を完了にした。", .medium)
         case .overflow(_, let title, _): announce(Copy.overflow(title), .medium)
         case .modeChanged(let mode): announce(Copy.modeChanged(mode.label), .low)
+        case .starEnded(_, let title, let next, let achieved): announce(Copy.starEndedSpoken(title, next: next, achieved: achieved), .medium)
         case .error(let message): announce(message, .high)
         }
     }

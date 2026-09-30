@@ -10,6 +10,38 @@ extension NoteModel {
         run { try $0.setNorthStar(trimmed) }
     }
 
+    // MARK: 北極星の控え
+
+    /// 今日の北極星を終えて、控えの先頭を繰り上げる。
+    func endNorthStar(achieved: Bool = true) {
+        guard state.today.star != nil else { return }
+        run({ store -> (NorthStar, NorthStar?) in
+            let result = try store.completeNorthStar(outcome: achieved ? .achieved : .dropped)
+            return (result.completed, result.next)
+        }) { [weak self] completed, next in
+            self?.show(.starEnded(starID: completed.id, title: completed.text, next: next?.text, achieved: achieved))
+        }
+    }
+
+    /// 終えたのを取り消す。ログから控えへ戻して今日に出すと、繰り上がった分は控えの先頭へ戻る。
+    func undoStarEnded() {
+        guard case .starEnded(let id, _, _, _) = transient else { return }
+        clearTransient()
+        run { try $0.restoreNorthStar(id: id) }
+    }
+
+    func activateNorthStar(_ id: UUID) { run { try $0.activateNorthStar(id: id) } }
+    func removeQueuedNorthStar(_ id: UUID) { run { try $0.removeNorthStar(id: id) } }
+    func moveQueuedNorthStar(_ id: UUID, to position: Int) { run { try $0.moveNorthStar(id: id, position: position) } }
+    func reopenNorthStar(_ id: UUID) { run { try $0.reopenNorthStar(id: id) } }
+
+    /// 控えの末尾に足す。今日の北極星は変えない。
+    func queueNorthStar(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        run { _ = try $0.addNorthStar(text: trimmed) }
+    }
+
     func setMode(_ id: String) {
         guard id != state.today.mode.id else { return }
         run { try $0.setMode(id) }
@@ -177,7 +209,9 @@ extension NoteModel {
     /// 操作できる要素の並び: 北極星 → いまの各行 →（入れ替え中なら各行の入れ替え）→ 追加（全部完了ならその操作）
     /// → あとで →（開いていれば）あとでの各行 → 声の行のボタン。
     var focusOrder: [FocusTarget] {
-        var order: [FocusTarget] = [.northStar] + state.today.now.map { .row($0.id) }
+        var order: [FocusTarget] = [.northStar]
+        if showsStarQueue { order.append(.starQueue) }
+        order += state.today.now.map { .row($0.id) }
         if swapping != nil { order += state.today.now.dropFirst().map { .swapTarget($0.id) } }
         if isAllDone && editing != .add {
             order += (0..<allDoneActionCount).map { .allDoneAction($0) }
@@ -188,6 +222,15 @@ extension NoteModel {
         if laterOpen { order += state.later.map { .laterRow($0.id) } }
         order += (0..<voiceActionCount).map { .voiceAction($0) }
         return order
+    }
+
+    /// 展開中に北極星のすぐ下へ出す控えの行。今日の北極星か控えがあるときだけ。
+    var showsStarQueue: Bool { expanded && (state.today.star != nil || !state.queuedStars.isEmpty) }
+
+    /// 控えの行のボタン: 今日の北極星があれば［達成した］、なければ控えの先頭を［これにする］。
+    func performStarQueueAction() {
+        if state.today.star != nil { endNorthStar() }
+        else if let next = state.queuedStars.first { activateNorthStar(next.id) }
     }
 
     /// 全部完了のときの操作: あとでが空なら［＋ 追加］［今日はここまで］、あれば［今日はここまで］だけ。
@@ -203,7 +246,7 @@ extension NoteModel {
         switch voice {
         case .mode, .transient(.error), .transient(.modeChanged): return 0
         case .detour: return 2
-        case .transient(.undo), .transient(.overflow), .banner: return 1
+        case .transient(.undo), .transient(.overflow), .transient(.starEnded), .banner: return 1
         }
     }
 
@@ -212,6 +255,7 @@ extension NoteModel {
         case .detour(let detour):
             if index == 0 { DetourActions.hide(detour, model: self) } else { DetourActions.snooze(detour, model: self) }
         case .transient(.undo): undo()
+        case .transient(.starEnded): undoStarEnded()
         case .transient(.overflow): swapping == nil ? beginSwap() : cancelSwap()
         case .banner: dismissBanner()
         case .mode, .transient(.error), .transient(.modeChanged): break
@@ -232,12 +276,13 @@ extension NoteModel {
     /// ⌃⌥O で最初に置く場所。寄り道が出ていれば［{App}を隠す］、なければ本命の行。
     var initialKeyboardIndex: Int {
         if case .detour = voice, let i = focusOrder.firstIndex(of: .voiceAction(0)) { return i }
-        return state.today.now.isEmpty ? 0 : 1
+        if let lead = state.today.now.first, let i = focusOrder.firstIndex(of: .row(lead.id)) { return i }
+        return 0
     }
 }
 
 enum FocusTarget: Equatable {
-    case northStar, row(UUID), add, later
+    case northStar, starQueue, row(UUID), add, later
     case voiceAction(Int), laterRow(UUID), swapTarget(UUID), allDoneAction(Int)
 }
 
@@ -297,7 +342,9 @@ extension NoteModel {
             cancelSwap()
         default:
             if characters == "l" && !command { toggleLater() }
-            else if characters == "z" && command { undo() }
+            else if characters == "z" && command {
+                if case .transient(.starEnded) = voice { undoStarEnded() } else { undo() }
+            }
             else { return false }
         }
         return true
@@ -307,6 +354,7 @@ extension NoteModel {
     private func activate(_ target: FocusTarget?) -> Bool {
         switch target {
         case .voiceAction(let i): performVoiceAction(i)
+        case .starQueue: performStarQueueAction()
         case .swapTarget(let id): swap(out: id)
         case .laterRow(let id): moveToNow(id)
         case .allDoneAction(let i): performAllDoneAction(i)
