@@ -19,7 +19,147 @@ public struct PolarisStore: Sendable {
 
     @discardableResult public func setNorthStar(_ text: String) throws -> State {
         let text = try TextRules.checked(text, max: TextRules.northStarMax, label: "北極星")
-        return try transaction { $0.today.northStar = text }.state
+        return try transaction { state in
+            if text.isEmpty {
+                if let star = state.today.star {
+                    var queue = state.queuedStars
+                    queue.insert(star, at: 0)
+                    state.starQueue = queue
+                    state.today.star = nil
+                }
+            } else if var star = state.today.star {
+                star.text = text
+                state.today.star = star
+            } else if let index = state.queuedStars.firstIndex(where: { $0.text == text }) {
+                // 朝の支度で昨日の分を引き継いだときなど、控えと同じ文面なら新しく作らずそれを出す。
+                var queue = state.queuedStars
+                var star = queue.remove(at: index)
+                if star.activatedAt == nil { star.activatedAt = clock() }
+                state.today.star = star
+                state.starQueue = queue
+            } else {
+                let now = clock()
+                state.today.star = NorthStar(text: text, createdAt: now, activatedAt: now)
+            }
+        }.state
+    }
+    public func addNorthStar(text: String, position: Int? = nil) throws -> NorthStar {
+        let text = try TextRules.checked(text, max: TextRules.northStarMax, label: "北極星")
+        guard !text.isEmpty else { throw PolarisError.invalidInput("北極星が空です") }
+        guard position == nil || position! >= 0 else { throw PolarisError.invalidInput("positionは0以上です") }
+        return try transaction { state in
+            guard state.queuedStars.count < TextRules.starQueueMax else {
+                throw PolarisError.invalidInput("控えは\(TextRules.starQueueMax)件までです")
+            }
+            let star = NorthStar(text: text, createdAt: clock())
+            var queue = state.queuedStars
+            queue.insert(star, at: min(position ?? queue.count, queue.count))
+            state.starQueue = queue
+            return star
+        }.value
+    }
+    public func completeNorthStar(outcome: NorthStarOutcome = .achieved) throws -> (state: State, completed: NorthStar, next: NorthStar?) {
+        let result = try transaction { state -> (NorthStar, NorthStar?) in
+            guard var completed = state.today.star else { throw PolarisError.invalidInput("北極星がありません") }
+            let now = clock()
+            completed.endedAt = now
+            completed.outcome = outcome
+            var log = state.pastStars
+            log.append(completed)
+            state.starLog = log
+            state.today.star = nil
+            var next: NorthStar?
+            var queue = state.queuedStars
+            if !queue.isEmpty {
+                var promoted = queue.removeFirst()
+                if promoted.activatedAt == nil { promoted.activatedAt = now }
+                state.today.star = promoted
+                next = promoted
+            }
+            state.starQueue = queue
+            return (completed, next)
+        }
+        return (result.state, result.value.0, result.value.1)
+    }
+    @discardableResult public func activateNorthStar(id: UUID) throws -> State {
+        try transaction { state in
+            var queue = state.queuedStars
+            guard let index = queue.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+            var chosen = queue.remove(at: index)
+            if chosen.activatedAt == nil { chosen.activatedAt = clock() }
+            if let current = state.today.star { queue.insert(current, at: 0) }
+            state.today.star = chosen
+            state.starQueue = queue
+        }.state
+    }
+    @discardableResult public func moveNorthStar(id: UUID, position: Int?) throws -> State {
+        guard position == nil || position! >= 0 else { throw PolarisError.invalidInput("positionは0以上です") }
+        return try transaction { state in
+            var queue = state.queuedStars
+            guard let index = queue.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+            let star = queue.remove(at: index)
+            queue.insert(star, at: min(position ?? queue.count, queue.count))
+            state.starQueue = queue
+        }.state
+    }
+    @discardableResult public func renameNorthStar(id: UUID, text: String) throws -> State {
+        let text = try TextRules.checked(text, max: TextRules.northStarMax, label: "北極星")
+        return try transaction { state in
+            if var star = state.today.star, star.id == id {
+                star.text = text
+                state.today.star = star
+            } else {
+                var queue = state.queuedStars
+                guard let index = queue.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+                queue[index].text = text
+                state.starQueue = queue
+            }
+        }.state
+    }
+    @discardableResult public func removeNorthStar(id: UUID) throws -> State {
+        try transaction { state in
+            var queue = state.queuedStars
+            guard let index = queue.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+            queue.remove(at: index)
+            state.starQueue = queue
+        }.state
+    }
+    @discardableResult public func reopenNorthStar(id: UUID) throws -> State {
+        try transaction { state in
+            guard state.queuedStars.count < TextRules.starQueueMax else {
+                throw PolarisError.invalidInput("控えは\(TextRules.starQueueMax)件までです")
+            }
+            var log = state.pastStars
+            guard let index = log.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+            var star = log.remove(at: index)
+            star.endedAt = nil
+            star.outcome = nil
+            var queue = state.queuedStars
+            queue.append(star)
+            state.starQueue = queue
+            state.starLog = log
+        }.state
+    }
+    /// 終えたのを取り消す。ログから今日に戻し、そのとき今日にあったもの（繰り上がった分）は控えの先頭へ戻す。
+    @discardableResult public func restoreNorthStar(id: UUID) throws -> State {
+        try transaction { state in
+            var log = state.pastStars
+            guard let index = log.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+            var star = log.remove(at: index)
+            star.endedAt = nil
+            star.outcome = nil
+            var queue = state.queuedStars
+            if let current = state.today.star { queue.insert(current, at: 0) }
+            state.today.star = star
+            state.starQueue = queue
+            state.starLog = log
+        }.state
+    }
+    public func northStarLog(limit: Int = 30) throws -> [NorthStar] {
+        guard (1...500).contains(limit) else { throw PolarisError.invalidInput("limitは1〜500です") }
+        return Array(try read().pastStars
+            .sorted { ($0.endedAt ?? .distantPast) > ($1.endedAt ?? .distantPast) }
+            .prefix(limit))
     }
     @discardableResult public func setMode(_ id: String) throws -> State {
         try transaction { state in
@@ -271,6 +411,14 @@ public struct PolarisStore: Sendable {
             }
             state.history.append(archived)
             state.later = state.today.now + state.later
+            // 未完了の北極星は履歴に残しつつ控えの先頭へ戻す（同じ id が控えにあれば重複させない）。
+            if let unfinished = state.today.star, unfinished.endedAt == nil {
+                var queue = state.queuedStars
+                if !queue.contains(where: { $0.id == unfinished.id }) {
+                    queue.insert(unfinished, at: 0)
+                    state.starQueue = queue
+                }
+            }
             state.today = Day(date: key, mode: state.defaultMode)
             state.lastOverflow = nil
         }
@@ -278,6 +426,10 @@ public struct PolarisStore: Sendable {
         state.history = Array(state.history.filter { $0.date >= cutoff }
             .sorted { $0.date < $1.date }.suffix(90))
         if let banner = state.banner, banner.expiresAt <= now { state.banner = nil }
+        if var log = state.starLog, log.count > 500 {
+            log.sort { ($0.endedAt ?? .distantPast) < ($1.endedAt ?? .distantPast) }
+            state.starLog = Array(log.suffix(500))
+        }
     }
     private func dateKey(_ date: Date) -> String {
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
@@ -293,6 +445,17 @@ public struct PolarisStore: Sendable {
         if let modes = state.modes {
             guard Set(modes.map(\.id)).count == modes.count,
                   modes.contains(where: { $0.id == Mode.defaultMode.id }) else { throw PolarisError.invalidState("モード一覧が不正です") }
+        }
+        let queue = state.queuedStars
+        let log = state.pastStars
+        // 上限は追加と再開のときだけ見る。今日の北極星を控えへ戻す操作やロールオーバーで超えても読めなくしない。
+        var starIDs: [UUID] = queue.map(\.id) + log.map(\.id)
+        if let today = state.today.star { starIDs.append(today.id) }
+        guard Set(starIDs).count == starIDs.count else { throw PolarisError.invalidState("北極星のIDが重複しています") }
+        let open = (state.today.star.map { [$0] } ?? []) + queue
+        guard open.allSatisfy({ $0.endedAt == nil && $0.outcome == nil }),
+              log.allSatisfy({ $0.endedAt != nil && $0.outcome != nil }) else {
+            throw PolarisError.invalidState("北極星の完了状態が不正です")
         }
     }
     private func editMode(id: String, _ body: (inout Mode) -> Void) throws -> State {

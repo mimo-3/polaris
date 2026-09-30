@@ -41,6 +41,7 @@ python3 scripts/polaris-backend-smoke.py
 - JSONの日時はISO 8601、日のキーはローカル時刻の `YYYY-MM-DD` です。
 - `state.lock` をflockでロックし、最新の状態に変更を適用して、一時ファイルからrenameします。実際に状態が変わった書き込みでrevisionが1増えます。初回作成はrevision 1です。
 - 日付が進んだ最初の読み書きで前日を履歴に移し、未完了のnowをlaterの先頭へ戻します。モードは仕事の日、北極星は空になります。履歴は過去90暦日以内で最大90件です。
+- 北極星は今日1つに加え、控え（最大20件）と終わったログを持てます。日付が進むと未完了の北極星は履歴に残しつつ控えの先頭へ戻ります。完了するとログへ移り、控えの先頭があれば今日になります。
 - nowが満杯なら追加・移動先はlater末尾になり、`Placement.overflowed` がtrueになります。positionは0始まりで、リスト長を超える位置は末尾扱いです。
 - 完了したタスクをmoveすると未完了に戻ります。履歴中のタスクは変更しません。
 - bannerは1件です。既定5分、最大1440分で、読み書きや監視時に期限切れを除去します。
@@ -48,7 +49,7 @@ python3 scripts/polaris-backend-smoke.py
 
 MCPは改行区切りJSON-RPC 2.0のstdioサーバーです。標準出力には応答だけを書きます。[MCPのinitializeとツール応答形式](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/schema.mdx)を利用し、2024-11-05、2025-03-26、2025-06-18をネゴシエートできます。
 
-12個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。タイトルと北極星は200字、nudge の text は280字までです。引数の詳細は `tools/list` のinputSchemaで取得できます。追加先はlaterが既定です。ユーザーの指示なしにnowを入れ替えないでください。
+18個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_list_north_stars`, `polaris_add_north_star`, `polaris_complete_north_star`, `polaris_switch_north_star`, `polaris_remove_north_star`, `polaris_get_north_star_log`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。タイトルと北極星は200字、nudge の text は280字までです。引数の詳細は `tools/list` のinputSchemaで取得できます。追加先はlaterが既定です。ユーザーの指示なしにnowを入れ替えないでください。
 
 ## UIからの購読
 

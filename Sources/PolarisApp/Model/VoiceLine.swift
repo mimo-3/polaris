@@ -17,13 +17,15 @@ enum Transient: Equatable {
     case undo(taskID: UUID, index: Int, title: String, next: String?)
     case overflow(taskID: UUID, title: String, client: String?)
     case modeChanged(Mode)
+    /// 北極星を終えた。付箋の1段目はもう次の北極星に替わっている。
+    case starEnded(starID: UUID, title: String, next: String?, achieved: Bool)
     case error(String)
 
     var duration: TimeInterval {
         switch self {
         case .modeChanged: 4
         case .undo: 5
-        case .overflow, .error: 6
+        case .overflow, .starEnded, .error: 6
         }
     }
 }
@@ -44,6 +46,7 @@ enum Voice: Equatable {
             case .undo(let id, _, _, _): "undo-\(id)"
             case .overflow(let id, _, _): "overflow-\(id)"
             case .modeChanged(let mode): "mode-changed-\(mode.id)"
+            case .starEnded(let id, _, _, _): "star-ended-\(id)"
             case .error(let m): "error-\(m)"
             }
         case .banner(let b): "banner-\(b.text)-\(b.expiresAt.timeIntervalSince1970)"

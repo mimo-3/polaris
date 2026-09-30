@@ -13,6 +13,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     private var statusMenu: StatusMenu!
     private var detour: DetourMonitor!
     private var settingsWindow: NSWindow?
+    private var starsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 最初の状態は監視の初回通知（別キュー）で入る。ここで同期的に読むと、MCP の書き込み中に起動が止まる。
@@ -96,6 +97,28 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
+    // MARK: 北極星の控えと振り返り
+
+    func showStars() {
+        if starsWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 480),
+                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = Copy.starsWindowTitle
+            window.isReleasedWhenClosed = false
+            let view = StarsView()
+                .environment(model)
+                .environment(\.polaris, model.theme)
+            // 控えやログが増えると高さが変わるので、窓の大きさは中身に合わせる。
+            let controller = NSHostingController(rootView: view)
+            controller.sizingOptions = .preferredContentSize
+            window.contentViewController = controller
+            window.center()
+            starsWindow = window
+        }
+        NSApp.activate()
+        starsWindow?.makeKeyAndOrderFront(nil)
+    }
+
     // MARK: ショートカット
 
     private func registerHotKeys() {
@@ -149,6 +172,7 @@ struct BackgroundMenuItems: View {
             Button(Copy.editNorthStar) { app.showQuickEdit(.northStar) }
             Button(Copy.addTask) { app.showQuickEdit(.add) }
             Button(Copy.redoMorning) { app.showMorning(key: true) }
+            Button(Copy.starsWindowMenu) { app.showStars() }
             Divider()
             Button(Copy.hideNote) { app.note.hide() }
             Button(Copy.hide15) { app.note.hide(for: 15) }

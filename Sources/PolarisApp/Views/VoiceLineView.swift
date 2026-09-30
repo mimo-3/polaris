@@ -125,6 +125,22 @@ struct VoiceLineView: View {
                 Spacer(minLength: 0)
             }
             .frame(height: 16)
+        case .starEnded(_, let title, let next, let achieved):
+            // 完了と同じ形にする。次の北極星は1段目に出ているので、ここでは繰り返さない。
+            oneLine {
+                HStack(spacing: PolarisTheme.Space.s) {
+                    quoted(title, tail: achieved ? Copy.starAchievedTail : Copy.starDroppedTail,
+                           font: PolarisTheme.Typography.voiceEmphasis)
+                        .layoutPriority(1)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(Copy.starEndedSpoken(title, next: next, achieved: achieved))
+                    Spacer(minLength: 0)
+                    if showsButtons {
+                        Button(Copy.undo) { model.undoStarEnded() }
+                            .buttonStyle(SmallButtonStyle(outlined: true, focused: focused(0)))
+                    }
+                }
+            }
         case .error(let message):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "exclamationmark.circle")

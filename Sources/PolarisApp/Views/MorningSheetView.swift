@@ -117,7 +117,9 @@ struct MorningSheetView: View {
     private var yesterday: Day? { model.state.history.last }
     private var canCarryOver: Bool {
         guard let y = yesterday, !y.northStar.isEmpty, y.northStar != northStar else { return false }
-        return !y.now.isEmpty // 未達のときだけ
+        // 未達のときだけ。終えていない北極星は日付が替わると控えへ戻るので、控えに残っているかで見る。
+        guard let star = y.star else { return !y.now.isEmpty }
+        return model.state.queuedStars.contains { $0.id == star.id }
     }
 
     private var northStarStep: some View {

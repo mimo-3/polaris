@@ -33,7 +33,7 @@ struct QuickEditView: View {
             Spacer().frame(height: S.xs)
             PolarisTextField(text: $northStar, prompt: Copy.step2Placeholder, font: PolarisTheme.Typography.northStar,
                              lineSpacing: PolarisTheme.Typography.northStarLineSpacing, axis: .vertical, lines: 1...3,
-                             onSubmit: { save(toLater: false) })
+                             onSubmit: { save(toLater: false, queueStar: NSEvent.modifierFlags.contains(.option)) })
                 .focused($focus, equals: .northStar)
                 .fieldBox(focused: isFocused(.northStar))
                 .accessibilityLabel(Copy.northStarLabel)
@@ -50,7 +50,7 @@ struct QuickEditView: View {
             MetaText(text: remaining > 0 ? Copy.toNow(remaining) : Copy.toLaterFull)
             Spacer().frame(height: S.l)
             HStack(spacing: S.l) {
-                ForEach(Copy.quickHints, id: \.self) { MetaText(text: $0) }
+                ForEach(isFocused(.northStar) ? Copy.quickHintsStar : Copy.quickHints, id: \.self) { MetaText(text: $0) }
             }
         }
         .padding(S.xl)
@@ -61,8 +61,18 @@ struct QuickEditView: View {
         .onKeyPress(.escape) { close(); return .handled }
     }
 
-    private func save(toLater: Bool) {
-        model.setNorthStar(northStar)
+    /// `queueStar` は北極星の欄での ⌥⏎。今日の北極星は変えず、書いた文を控えの末尾に足す。
+    private func save(toLater: Bool, queueStar: Bool = false) {
+        if queueStar {
+            // 控えが満杯なら閉じない。書いた文を失わないようにする。
+            guard model.state.queuedStars.count < TextRules.starQueueMax else {
+                model.show(.error(Copy.starsQueueFull))
+                return
+            }
+            model.queueNorthStar(northStar)
+        } else {
+            model.setNorthStar(northStar)
+        }
         let title = addText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !title.isEmpty { model.addTask(title, to: toLater ? .later : .now) }
         close()

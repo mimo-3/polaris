@@ -41,6 +41,11 @@ struct NoteCard: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             NorthStarView()
+            if model.showsStarQueue {
+                Spacer().frame(height: S.s)
+                StarQueueLine()
+                    .transition(.opacity.animation(PolarisTheme.Motion.expandContent(theme.reduceMotion)))
+            }
             Spacer().frame(height: S.m)
             leadBlock
             if model.expanded {
@@ -144,6 +149,7 @@ struct NorthStarView: View {
                     .accessibilityLabel(text.isEmpty ? "北極星はまだない" : "北極星、\(text)")
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityAction(named: "編集") { model.beginEditing(.northStar) }
+                    .modifier(StarEndActions())
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -231,5 +237,78 @@ private struct AddRow: View {
             .buttonStyle(InlineButtonStyle())
             .focusRing(model.focusedTarget == .add)
         }
+    }
+}
+
+/// 北極星を終える操作。右クリックと VoiceOver の両方から届くようにする。
+private struct StarEndActions: ViewModifier {
+    @Environment(NoteModel.self) private var model
+
+    func body(content: Content) -> some View {
+        if model.today.star == nil {
+            content
+        } else {
+            content
+                .contextMenu {
+                    Button(Copy.starAchieved) { model.endNorthStar() }
+                    Button(Copy.starDrop) { model.endNorthStar(achieved: false) }
+                }
+                .accessibilityAction(named: Copy.starAchieved) { model.endNorthStar() }
+                .accessibilityAction(named: Copy.starDrop) { model.endNorthStar(achieved: false) }
+        }
+    }
+}
+
+/// 展開中だけ北極星のすぐ下に出す1行。「次に控える　CS成長PJのキックオフ　ほか1　［達成した］」。
+/// 常駐中は出さない。主役は北極星1つで、控えは達成したときに1段目へ上がってくれば足りる。
+struct StarQueueLine: View {
+    @Environment(NoteModel.self) private var model
+    @Environment(\.polaris) private var theme
+
+    var body: some View {
+        let queue = model.state.queuedStars
+        let hasToday = model.today.star != nil
+        HStack(spacing: PolarisTheme.Space.s) {
+            if let next = queue.first {
+                // 押すと控えと振り返りの窓を開く。並べ替えや過去を見るのはそこで行う。
+                Button { (NSApp.delegate as? AppCoordinator)?.showStars() } label: {
+                HStack(spacing: 6) {
+                    MetaText(text: hasToday ? Copy.starNextLabel : Copy.starQueueHead).fixedSize()
+                    Text(next.text)
+                        .font(PolarisTheme.Typography.meta)
+                        .foregroundStyle(theme.ink)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if queue.count > 1 { MetaText(text: Copy.starMore(queue.count - 1)).fixedSize() }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.ink2)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .layoutPriority(1)
+                .accessibilityElement(children: .combine)
+                .accessibilityHint(Copy.starsOpenHint)
+            } else {
+                Button { (NSApp.delegate as? AppCoordinator)?.showStars() } label: {
+                    HStack(spacing: 6) {
+                        MetaText(text: Copy.starsQueueEmpty)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(theme.ink2)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(Copy.starsOpenHint)
+            }
+            Spacer(minLength: 0)
+            Button(hasToday ? Copy.starAchieved : Copy.starUseNext) { model.performStarQueueAction() }
+                .buttonStyle(SmallButtonStyle(outlined: true, focused: model.focusedTarget == .starQueue))
+        }
+        .frame(minHeight: 24)
     }
 }

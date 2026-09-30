@@ -522,4 +522,148 @@ final class StoreTests {
         var moved = fresh; moved.later = []
         #expect(OverflowNotice.event(from: before, to: moved, now: epoch, settling: false, busy: false) == nil)
     }
+
+    @Test func testLegacyNorthStarJSONMigratesWithStableID() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "revision": 3,
+          "today": {
+            "date": "2026-06-01",
+            "mode": { "id": "work", "label": "仕事の日", "symbol": "briefcase", "tint": "slate", "avoidApps": [] },
+            "northStar": "移行する北極星",
+            "now": [],
+            "done": []
+          },
+          "later": [],
+          "history": []
+        }
+        """
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let state = try decoder.decode(State.self, from: Data(json.utf8))
+        let expected = NorthStar.stableID(date: "2026-06-01", text: "移行する北極星")
+        #expect(state.today.northStar == "移行する北極星")
+        #expect(state.today.star?.id == expected)
+        #expect(state.today.star?.text == "移行する北極星")
+        #expect(state.starQueue == nil)
+        #expect(state.starLog == nil)
+        #expect(state.queuedStars.isEmpty)
+        #expect(state.pastStars.isEmpty)
+
+        let again = try decoder.decode(State.self, from: Data(json.utf8))
+        #expect(again.today.star?.id == expected)
+
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let encoded = try JSONSerialization.jsonObject(with: encoder.encode(state)) as? [String: Any]
+        let today = try #require(encoded?["today"] as? [String: Any])
+        #expect(today["northStar"] as? String == "移行する北極星")
+        #expect(today["star"] is [String: Any])
+    }
+
+    @Test func testNorthStarQueueCompletePromotesNextAndLogs() throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setNorthStar("今日の星")
+        let queued = try subject.addNorthStar(text: "控えの星")
+        let result = try subject.completeNorthStar()
+        #expect(result.completed.text == "今日の星")
+        #expect(result.completed.outcome == .achieved)
+        #expect(result.completed.endedAt == epoch)
+        #expect(result.next?.id == queued.id)
+        #expect(result.state.today.star?.id == queued.id)
+        #expect(result.state.today.star?.activatedAt == epoch)
+        #expect(result.state.queuedStars.isEmpty)
+        #expect(result.state.pastStars.map(\.text) == ["今日の星"])
+    }
+
+    @Test func testNorthStarSwitchMoveRemoveReopenAndFullQueue() throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setNorthStar("いま")
+        let a = try subject.addNorthStar(text: "A")
+        let b = try subject.addNorthStar(text: "B")
+        let c = try subject.addNorthStar(text: "C")
+
+        let switched = try subject.activateNorthStar(id: b.id)
+        #expect(switched.today.star?.id == b.id)
+        #expect(switched.queuedStars.map(\.text) == ["いま", "A", "C"])
+
+        let moved = try subject.moveNorthStar(id: c.id, position: 0)
+        #expect(moved.queuedStars.map(\.text) == ["C", "いま", "A"])
+
+        let removed = try subject.removeNorthStar(id: a.id)
+        #expect(removed.queuedStars.map(\.text) == ["C", "いま"])
+        #expect(throws: PolarisError.self) { try subject.removeNorthStar(id: a.id) }
+
+        let completed = try subject.completeNorthStar(outcome: .dropped)
+        #expect(completed.completed.outcome == .dropped)
+        #expect(completed.completed.text == "B")
+        #expect(completed.next?.text == "C")
+        #expect(completed.state.pastStars.map(\.text) == ["B"])
+
+        let reopened = try subject.reopenNorthStar(id: completed.completed.id)
+        #expect(reopened.pastStars.isEmpty)
+        #expect(reopened.queuedStars.map(\.text) == ["いま", "B"])
+        #expect(reopened.queuedStars.last?.endedAt == nil)
+        #expect(reopened.queuedStars.last?.outcome == nil)
+
+        // 控えを満杯にして追加と reopen を拒否する。
+        while try subject.read().queuedStars.count < TextRules.starQueueMax {
+            _ = try subject.addNorthStar(text: "埋める\(try subject.read().queuedStars.count)")
+        }
+        #expect(throws: PolarisError.self) { try subject.addNorthStar(text: "あふれる") }
+        let finished = try subject.completeNorthStar().completed
+        // complete で控えが1つ減るので、また埋めてから reopen を確かめる。
+        while try subject.read().queuedStars.count < TextRules.starQueueMax {
+            _ = try subject.addNorthStar(text: "再埋め\(try subject.read().queuedStars.count)")
+        }
+        #expect(throws: PolarisError.self) { try subject.reopenNorthStar(id: finished.id) }
+        #expect(try subject.northStarLog(limit: 1).map(\.id) == [finished.id])
+    }
+
+    @Test func testRolloverReturnsUnfinishedStarToQueueFront() throws {
+        let directory = try home()
+        let previous = store(at: directory, date: epoch)
+        _ = try previous.setNorthStar("未完了の星")
+        let queued = try previous.addNorthStar(text: "控え")
+        let old = try previous.read()
+        let starID = try #require(old.today.star?.id)
+
+        let state = try store(at: directory, date: epoch.addingTimeInterval(86400)).read()
+        #expect(state.today.star == nil)
+        #expect(state.today.northStar == "")
+        #expect(state.history.first?.star?.id == starID)
+        #expect(state.history.first?.northStar == "未完了の星")
+        #expect(state.queuedStars.map(\.id) == [starID, queued.id])
+    }
+
+    @Test func testSettingQueuedTextActivatesItInsteadOfDuplicating() throws {
+        let directory = try home()
+        _ = try store(at: directory, date: epoch).setNorthStar("引き継ぐ星")
+        let next = store(at: directory, date: epoch.addingTimeInterval(86400))
+        let carried = try #require(try next.read().queuedStars.first)
+        let state = try next.setNorthStar("引き継ぐ星")
+        #expect(state.today.star?.id == carried.id)
+        #expect(state.queuedStars.isEmpty)
+    }
+
+    @Test func testQueueOverLimitStaysReadable() throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setNorthStar("今日の星")
+        for n in 0..<TextRules.starQueueMax { _ = try subject.addNorthStar(text: "控え\(n)") }
+        let state = try subject.setNorthStar("")
+        #expect(state.queuedStars.count == TextRules.starQueueMax + 1)
+        #expect(try subject.read().queuedStars.first?.text == "今日の星")
+    }
+
+    @Test func testRestoreNorthStarUndoesCompletionInOneStep() throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setNorthStar("方針整理")
+        let next = try subject.addNorthStar(text: "キックオフ")
+        let done = try subject.completeNorthStar().completed
+        let state = try subject.restoreNorthStar(id: done.id)
+        #expect(state.today.star?.id == done.id)
+        #expect(state.today.star?.endedAt == nil)
+        #expect(state.queuedStars.map(\.id) == [next.id])
+        #expect(state.pastStars.isEmpty)
+        #expect(throws: PolarisError.self) { try subject.addNorthStar(text: "  ") }
+    }
 }
