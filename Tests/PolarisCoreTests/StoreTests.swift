@@ -90,9 +90,22 @@ final class StoreTests {
         let placement = try subject.moveTask(id: task.id, to: .now)
 
         #expect(placement.overflowed)
+        // MCP が作ったタスクでも、動かしたのが付箋なら出所は user。
         #expect(try subject.read().lastOverflow == OverflowEvent(
-            taskID: task.id, title: task.title, source: task.source, at: movedAt
+            taskID: task.id, title: task.title, source: "user", at: movedAt
         ))
+    }
+
+    @Test func testMCPMoveOfUserTaskRecordsMCPActor() throws {
+        let subject = store(at: try home(), date: epoch)
+        for title in ["一番", "二番", "三番"] { _ = try subject.addTask(title: title, to: .now) }
+        let task = try subject.addTask(title: "自分で書いた", to: .later).task
+
+        let placement = try subject.moveTask(id: task.id, to: .now, actor: "mcp:codex")
+
+        #expect(placement.overflowed)
+        #expect(try subject.read().lastOverflow?.source == "mcp:codex")
+        #expect(throws: PolarisError.self) { try subject.moveTask(id: task.id, to: .now, actor: "codex") }
     }
 
     @Test func testRolloverClearsLastOverflow() throws {
@@ -453,5 +466,60 @@ final class StoreTests {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let state = try decoder.decode(State.self, from: Data(contentsOf: subject.stateURL))
         #expect(state.modes?.map(\.id) == ["work", "reading", "rest", "deep"])
+    }
+
+    @Test func testFieldEditsApplyToLatestMode() throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setMode("reading")
+        _ = try subject.updateAvoidApps(id: "reading", add: ["com.example.new", " com.example.new "], remove: ["com.tinyspeck.slackmacgap"])
+        let state = try subject.renameMode(id: "reading", label: " 本の日 ")
+        let reading = try #require(state.availableModes.first { $0.id == "reading" })
+        #expect(reading.label == "本の日")
+        #expect(reading.avoidApps.last == "com.example.new")
+        #expect(!reading.avoidApps.contains("com.tinyspeck.slackmacgap"))
+        #expect(state.today.mode == reading)
+        #expect(throws: PolarisError.self) { try subject.renameMode(id: "missing", label: "x") }
+        #expect(throws: PolarisError.self) { try subject.renameMode(id: "reading", label: "  ") }
+    }
+
+    @Test func testConcurrentRenameAndAppEditsKeepBoth() throws {
+        let directory = try home()
+        let date = epoch
+        let fixedCalendar = calendar
+        let failures = Failures()
+        DispatchQueue.concurrentPerform(iterations: 40) { index in
+            do {
+                let writer = PolarisStore(homeURL: directory, calendar: fixedCalendar, clock: { date })
+                if index.isMultiple(of: 2) {
+                    _ = try writer.renameMode(id: "work", label: "名前\(index)")
+                } else {
+                    _ = try writer.updateAvoidApps(id: "work", add: ["com.example.\(index)"])
+                }
+            } catch { failures.record(error) }
+        }
+        let work = try #require(try store(at: directory, date: date).read().availableModes.first { $0.id == "work" })
+        #expect(failures.all.isEmpty)
+        #expect(work.label.hasPrefix("名前"))
+        #expect(Set(work.avoidApps) == Set(stride(from: 1, to: 40, by: 2).map { "com.example.\($0)" }))
+    }
+
+    @Test func testOverflowNoticeOnlyForFreshMCPEvents() throws {
+        let task = Task(title: "溢れた", source: "user")
+        let before = State(today: Day(date: "2026-06-01"), later: [task])
+        func after(_ source: String, at: Date) -> State {
+            var state = before
+            state.lastOverflow = OverflowEvent(taskID: task.id, title: task.title, source: source, at: at)
+            return state
+        }
+        let fresh = after("mcp:claude", at: epoch)
+        #expect(OverflowNotice.event(from: before, to: fresh, now: epoch.addingTimeInterval(10), settling: false, busy: false) == fresh.lastOverflow)
+        // 出所が付箋、古い、起動直後や日付替わり、入れ替えや取り消しの最中、同じ記録、もう「あとで」に無い
+        #expect(OverflowNotice.event(from: before, to: after("user", at: epoch), now: epoch, settling: false, busy: false) == nil)
+        #expect(OverflowNotice.event(from: before, to: fresh, now: epoch.addingTimeInterval(OverflowNotice.freshness), settling: false, busy: false) == nil)
+        #expect(OverflowNotice.event(from: before, to: fresh, now: epoch, settling: true, busy: false) == nil)
+        #expect(OverflowNotice.event(from: before, to: fresh, now: epoch, settling: false, busy: true) == nil)
+        #expect(OverflowNotice.event(from: fresh, to: fresh, now: epoch, settling: false, busy: false) == nil)
+        var moved = fresh; moved.later = []
+        #expect(OverflowNotice.event(from: before, to: moved, now: epoch, settling: false, busy: false) == nil)
     }
 }
