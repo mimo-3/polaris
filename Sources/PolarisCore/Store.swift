@@ -22,8 +22,39 @@ public struct PolarisStore: Sendable {
         return try transaction { $0.today.northStar = text }.state
     }
     @discardableResult public func setMode(_ id: String) throws -> State {
-        guard let mode = Mode.defaults.first(where: { $0.id == id }) else { throw PolarisError.unknownMode }
-        return try transaction { $0.today.mode = mode }.state
+        try transaction { state in
+            guard let mode = state.availableModes.first(where: { $0.id == id }) else { throw PolarisError.unknownMode }
+            state.today.mode = mode
+        }.state
+    }
+    /// 同じ id があれば置き換え、無ければ末尾に足す。今日のモードなら今日の分も合わせる。
+    @discardableResult public func upsertMode(_ mode: Mode) throws -> State {
+        var mode = mode
+        mode.label = try TextRules.checked(mode.label, max: TextRules.modeLabelMax, label: "モード名")
+        guard !mode.label.isEmpty else { throw PolarisError.invalidInput("モード名を入れてください") }
+        guard !mode.id.isEmpty, mode.id.count <= TextRules.clientMax else { throw PolarisError.invalidInput("モードのidが不正です") }
+        var apps: [String] = []
+        for raw in mode.avoidApps {
+            let app = TextRules.clean(raw)
+            guard !app.isEmpty, app.count <= TextRules.bundleIDMax else { throw PolarisError.invalidInput("アプリのIDが不正です") }
+            if !apps.contains(app) { apps.append(app) }
+        }
+        mode.avoidApps = apps
+        return try transaction { state in
+            var modes = state.availableModes
+            if let i = modes.firstIndex(where: { $0.id == mode.id }) { modes[i] = mode } else { modes.append(mode) }
+            state.modes = modes
+            if state.today.mode.id == mode.id { state.today.mode = mode }
+        }.state
+    }
+    /// 既定モードと今日使っているモードは消せない。
+    @discardableResult public func removeMode(id: String) throws -> State {
+        guard id != Mode.defaultMode.id else { throw PolarisError.invalidInput("既定のモードは削除できません") }
+        return try transaction { state in
+            guard state.availableModes.contains(where: { $0.id == id }) else { throw PolarisError.unknownMode }
+            guard state.today.mode.id != id else { throw PolarisError.invalidInput("今日使っているモードは削除できません") }
+            state.modes = state.availableModes.filter { $0.id != id }
+        }.state
     }
     @discardableResult public func setNote(_ text: String?) throws -> State {
         let text = try text.map { try TextRules.checked($0, max: TextRules.noteMax, label: "メモ") }
@@ -233,7 +264,7 @@ public struct PolarisStore: Sendable {
             }
             state.history.append(archived)
             state.later = state.today.now + state.later
-            state.today = Day(date: key)
+            state.today = Day(date: key, mode: state.defaultMode)
             state.lastOverflow = nil
         }
         let cutoff = dateKey(calendar.date(byAdding: .day, value: -90, to: now) ?? now)
@@ -252,6 +283,10 @@ public struct PolarisStore: Sendable {
         guard Set(active.map(\.id)).count == active.count,
               (state.today.now + state.later).allSatisfy({ $0.completedAt == nil }),
               state.today.done.allSatisfy({ $0.completedAt != nil }) else { throw PolarisError.invalidState("タスクのIDまたは完了状態が不正です") }
+        if let modes = state.modes {
+            guard Set(modes.map(\.id)).count == modes.count,
+                  modes.contains(where: { $0.id == Mode.defaultMode.id }) else { throw PolarisError.invalidState("モード一覧が不正です") }
+        }
     }
     private func place(_ task: Task, to: TaskDestination, position: Int?, in state: inout State) throws -> Placement {
         guard position == nil || position! >= 0 else { throw PolarisError.invalidInput("positionは0以上です") }
