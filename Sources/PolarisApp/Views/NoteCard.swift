@@ -28,6 +28,12 @@ struct NoteCard: View {
         .onTapGesture { if !model.isDayClosed { model.togglePin() } }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(panelLabel)
+        .accessibilityValue(model.expanded ? Copy.expandedValue : Copy.collapsedValue)
+        // クリックの開閉は onTapGesture なので AXPress が無い。既定の操作と名前付きの操作で同じことを出す。
+        .accessibilityAction { model.setExpanded(!model.expanded) }
+        .accessibilityAction(named: model.expanded ? Copy.collapseAction : Copy.expandAction) {
+            model.setExpanded(!model.expanded)
+        }
     }
 
     private var panelLabel: String {

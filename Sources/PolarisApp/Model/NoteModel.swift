@@ -308,6 +308,17 @@ final class NoteModel {
         }
     }
 
+    /// VoiceOver や自動操作から開閉する。ホバーで開いているだけでも「たたむ」で閉じられるようにする。
+    func setExpanded(_ open: Bool) {
+        guard !isDayClosed, !clickThrough || optionPeek, open != expanded else { return }
+        if open {
+            withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { pinned = true }
+        } else {
+            hoverTimer?.cancel()
+            unpinAll()
+        }
+    }
+
     func unpinAll() {
         withAnimation(PolarisTheme.Motion.collapse(theme.reduceMotion)) {
             pinned = false; hoverOpen = false; swapping = nil; editing = nil; laterOpen = false
