@@ -265,5 +265,14 @@ enum SnapshotRenderer {
         Scenario(name: "quick-edit", build: { m in
             AnyView(QuickEditView(state: m.state, focus: .add, close: {}))
         }, state: { _ in Fixtures.state(now: Array(Fixtures.work.prefix(2))) }),
+        Scenario(name: "expanded-star-queue", build: { _ in card() }, configure: { m in
+            m.pinned = true
+        }, state: { _ in Fixtures.withStars(Fixtures.state()) }),
+        Scenario(name: "star-achieved", build: { _ in card() }, configure: { m in
+            m.transient = .starEnded(starID: Fixtures.starID(9), title: Fixtures.longStar,
+                                     next: Fixtures.queuedStars[0].text, achieved: true)
+        }, state: { _ in Fixtures.withStars(Fixtures.state(northStar: Fixtures.queuedStars[0].text), promoted: true) }),
+        Scenario(name: "stars-window", build: { _ in AnyView(StarsView()) },
+                 state: { _ in Fixtures.withStars(Fixtures.state()) }),
     ]
 }

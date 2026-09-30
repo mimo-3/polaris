@@ -57,4 +57,27 @@ enum Fixtures {
         Day(date: "2026-09-29", mode: mode("work"), northStar: "決済APIの移行を本番へ出す",
             now: [task(1, "レビュー指摘を直す")], done: [])
     }
+
+    // MARK: 北極星の控えと振り返り
+
+    static func starID(_ n: Int) -> UUID { UUID(uuidString: String(format: "00000000-0000-0000-0001-%012d", n))! }
+
+    static let queuedStars = [NorthStar(id: starID(1), text: "CS成長PJのキックオフを終える", createdAt: created),
+                              NorthStar(id: starID(2), text: "採用の評価基準を見直す", createdAt: created)]
+
+    static let pastStars: [NorthStar] = {
+        let day: TimeInterval = 86400
+        return [NorthStar(id: starID(3), text: "東京ガスの提案方針を整理する", createdAt: created - 3 * day,
+                          activatedAt: created - 2 * day, endedAt: created - day, outcome: .achieved),
+                NorthStar(id: starID(4), text: "社内勉強会の資料を作る", createdAt: created - 5 * day,
+                          activatedAt: created - 5 * day, endedAt: created - 4 * day, outcome: .dropped)]
+    }()
+
+    /// `promoted` なら控えの先頭が今日に上がったあと（残りの控えは1件）。
+    static func withStars(_ state: AppState, promoted: Bool = false) -> AppState {
+        var s = state
+        s.starQueue = promoted ? Array(queuedStars.dropFirst()) : queuedStars
+        s.starLog = pastStars
+        return s
+    }
 }
