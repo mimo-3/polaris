@@ -84,6 +84,22 @@ public struct State: Codable, Sendable, Equatable {
     public var defaultMode: Mode { availableModes.first { $0.id == Mode.defaultMode.id } ?? Mode.defaultMode }
 }
 
+/// MCP で溢れたことを付箋で知らせるかの判定。アプリの状態に依らない部分だけをここに置いてテストする。
+public enum OverflowNotice {
+    /// これより古い記録は別の起動や過去の出来事とみなす。
+    public static let freshness: TimeInterval = 30
+
+    /// - Parameters:
+    ///   - settling: 起動直後の読み込みか日付が替わった直後。古い記録を今のことのように出さない。
+    ///   - busy: 入れ替えの途中や取り消しを出しているあいだ。上書きすると操作できなくなる。
+    public static func event(from previous: State, to next: State, now: Date, settling: Bool, busy: Bool) -> OverflowEvent? {
+        guard !settling, !busy, let event = next.lastOverflow, event != previous.lastOverflow,
+              event.source.hasPrefix("mcp:"), abs(now.timeIntervalSince(event.at)) < freshness,
+              next.later.contains(where: { $0.id == event.taskID }) else { return nil }
+        return event
+    }
+}
+
 public enum TaskDestination: String, Codable, Sendable { case now, later }
 
 public struct Placement: Codable, Sendable, Equatable {
