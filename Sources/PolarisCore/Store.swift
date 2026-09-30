@@ -30,22 +30,28 @@ public struct PolarisStore: Sendable {
     /// 同じ id があれば置き換え、無ければ末尾に足す。今日のモードなら今日の分も合わせる。
     @discardableResult public func upsertMode(_ mode: Mode) throws -> State {
         var mode = mode
-        mode.label = try TextRules.checked(mode.label, max: TextRules.modeLabelMax, label: "モード名")
-        guard !mode.label.isEmpty else { throw PolarisError.invalidInput("モード名を入れてください") }
+        mode.label = try checkedModeLabel(mode.label)
         guard !mode.id.isEmpty, mode.id.count <= TextRules.clientMax else { throw PolarisError.invalidInput("モードのidが不正です") }
-        var apps: [String] = []
-        for raw in mode.avoidApps {
-            let app = TextRules.clean(raw)
-            guard !app.isEmpty, app.count <= TextRules.bundleIDMax else { throw PolarisError.invalidInput("アプリのIDが不正です") }
-            if !apps.contains(app) { apps.append(app) }
-        }
-        mode.avoidApps = apps
+        mode.avoidApps = try checkedApps(mode.avoidApps)
         return try transaction { state in
             var modes = state.availableModes
             if let i = modes.firstIndex(where: { $0.id == mode.id }) { modes[i] = mode } else { modes.append(mode) }
             state.modes = modes
             if state.today.mode.id == mode.id { state.today.mode = mode }
         }.state
+    }
+    /// 名前だけを変える。寄り道のアプリは書き込む時点の最新のまま残す。
+    @discardableResult public func renameMode(id: String, label: String) throws -> State {
+        let label = try checkedModeLabel(label)
+        return try editMode(id: id) { $0.label = label }
+    }
+    /// 寄り道のアプリを足し引きする。同時に名前を変えられても消さないよう、最新の一覧に差分だけ当てる。
+    @discardableResult public func updateAvoidApps(id: String, add: [String] = [], remove: [String] = []) throws -> State {
+        let add = try checkedApps(add), remove = Set(remove.map(TextRules.clean))
+        return try editMode(id: id) { mode in
+            mode.avoidApps.removeAll { remove.contains($0) }
+            for app in add where !mode.avoidApps.contains(app) { mode.avoidApps.append(app) }
+        }
     }
     /// 既定モードと今日使っているモードは消せない。
     @discardableResult public func removeMode(id: String) throws -> State {
@@ -288,6 +294,29 @@ public struct PolarisStore: Sendable {
             guard Set(modes.map(\.id)).count == modes.count,
                   modes.contains(where: { $0.id == Mode.defaultMode.id }) else { throw PolarisError.invalidState("モード一覧が不正です") }
         }
+    }
+    private func editMode(id: String, _ body: (inout Mode) -> Void) throws -> State {
+        try transaction { state in
+            var modes = state.availableModes
+            guard let i = modes.firstIndex(where: { $0.id == id }) else { throw PolarisError.unknownMode }
+            body(&modes[i])
+            state.modes = modes
+            if state.today.mode.id == id { state.today.mode = modes[i] }
+        }.state
+    }
+    private func checkedModeLabel(_ label: String) throws -> String {
+        let label = try TextRules.checked(label, max: TextRules.modeLabelMax, label: "モード名")
+        guard !label.isEmpty else { throw PolarisError.invalidInput("モード名を入れてください") }
+        return label
+    }
+    private func checkedApps(_ raw: [String]) throws -> [String] {
+        var apps: [String] = []
+        for value in raw {
+            let app = TextRules.clean(value)
+            guard !app.isEmpty, app.count <= TextRules.bundleIDMax else { throw PolarisError.invalidInput("アプリのIDが不正です") }
+            if !apps.contains(app) { apps.append(app) }
+        }
+        return apps
     }
     private func checkActor(_ actor: String) throws {
         guard actor == "user" || (actor.hasPrefix("mcp:") && actor.count > 4 && actor.count <= 4 + TextRules.clientMax
