@@ -4,7 +4,11 @@ import PolarisCore
 /// design.md 5章の文言。UI の文字列はここにまとめ、ビューに直接書かない。
 enum Copy {
     // 付箋
-    static let northStarEmpty = "今日の北極星は、まだない"
+    static let northStarEmpty = "北極星を設定する"
+    /// 押せない場所（メニューバー・寄り道表示・控えの窓）で使う。
+    static func modeMenu(_ label: String) -> String { "モード、\(label)。押すと切り替える" }
+    static let panelToggle = "付箋の開閉"
+    static let northStarNone = "北極星は未設定"
     static let startMorning = "朝の支度を始める"
     static let addLead = "本命を追加する"
     static let add = "＋ 追加"

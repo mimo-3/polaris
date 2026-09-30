@@ -33,7 +33,7 @@ struct NoteCard: View {
     }
 
     private var panelLabel: String {
-        let star = model.today.northStar.isEmpty ? "北極星はまだない" : "北極星、\(model.today.northStar)"
+        let star = model.today.northStar.isEmpty ? Copy.northStarNone : "北極星、\(model.today.northStar)"
         let lead = model.lead.map { "本命、\($0.title)。" } ?? ""
         return "Polaris。\(star)。\(lead)\(model.mode.label)"
     }
@@ -52,8 +52,11 @@ struct NoteCard: View {
                 expandedExtras
                     .transition(.opacity.animation(PolarisTheme.Motion.expandContent(theme.reduceMotion)))
             }
-            Spacer().frame(height: model.expanded ? S.m : S.l)
-            VoiceLineView()
+            // 閉じているときは北極星と本命だけ。モード表示は開いたときに出し、寄り道や取り消しなどの声だけは閉じていても出す。
+            if model.expanded || model.voice != .mode {
+                Spacer().frame(height: model.expanded ? S.m : S.l)
+                VoiceLineView()
+            }
         }
     }
 
@@ -135,9 +138,21 @@ struct NorthStarView: View {
                     .focused($focused)
                     .onAppear { focused = true }
                     .onExitCommand { model.endEditing() }
+            } else if model.today.northStar.isEmpty {
+                // 空のときは薄い字で誘うだけ。1回押せば書ける。
+                Button { model.beginEditing(.northStar) } label: {
+                    Text(Copy.northStarEmpty)
+                        .font(PolarisTheme.Typography.northStar)
+                        // 20pt の大きい字なので、薄くしても 3:1 は保てる。
+                        .foregroundStyle(theme.ink2.opacity(theme.increaseContrast ? 1 : 0.75))
+                        .padding(.vertical, PolarisTheme.Typography.northStarPadding)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             } else {
                 let text = model.today.northStar
-                Text(text.isEmpty ? Copy.northStarEmpty : WordWrap.japanese(text))
+                Text(WordWrap.japanese(text))
                     .font(PolarisTheme.Typography.northStar)
                     .lineSpacing(PolarisTheme.Typography.northStarLineSpacing)
                     .foregroundStyle(theme.ink)
@@ -146,7 +161,7 @@ struct NorthStarView: View {
                     .padding(.vertical, PolarisTheme.Typography.northStarPadding)
                     .fixedSize(horizontal: false, vertical: true)
                     .onTapGesture(count: 2) { model.beginEditing(.northStar) }
-                    .accessibilityLabel(text.isEmpty ? "北極星はまだない" : "北極星、\(text)")
+                    .accessibilityLabel("北極星、\(text)")
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityAction(named: "編集") { model.beginEditing(.northStar) }
                     .modifier(StarEndActions())
