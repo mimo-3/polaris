@@ -164,12 +164,9 @@ private struct ModeSettings: View {
         VStack(alignment: .leading, spacing: S.l) {
             VStack(alignment: .leading, spacing: S.xs) {
                 MetaText(text: Copy.modeName)
-                TextField(Copy.modeName, text: $name)
-                    .textFieldStyle(.plain)
-                    .font(PolarisTheme.Typography.task)
-                    .foregroundStyle(theme.ink)
+                PolarisTextField(text: $name, prompt: mode.label, font: PolarisTheme.Typography.task,
+                                 onSubmit: { commitName() })
                     .focused($nameFocused)
-                    .onSubmit { commitName() }
                     .onChange(of: name) { _, text in
                         if text.count > TextRules.modeLabelMax { name = String(text.prefix(TextRules.modeLabelMax)) }
                     }
