@@ -62,10 +62,9 @@ public struct PolarisStore: Sendable {
     }
     public func addTask(title: String, to: TaskDestination = .later, position: Int? = nil, source: String = "user") throws -> Placement {
         let title = try checkedTitle(title)
-        guard source == "user" || (source.hasPrefix("mcp:") && source.count > 4 && source.count <= 4 + TextRules.clientMax
-                                   && TextRules.clean(source) == source) else { throw PolarisError.invalidInput("不正なsourceです") }
+        try checkActor(source)
         return try transaction { state in
-            try place(Task(title: title, createdAt: clock(), source: source), to: to, position: position, in: &state)
+            try place(Task(title: title, createdAt: clock(), source: source), to: to, position: position, actor: source, in: &state)
         }.value
     }
     @discardableResult public func completeTask(id: UUID) throws -> State {
@@ -74,11 +73,13 @@ public struct PolarisStore: Sendable {
             task.completedAt = clock(); state.today.done.append(task)
         }.state
     }
-    public func moveTask(id: UUID, to: TaskDestination, position: Int? = nil) throws -> Placement {
-        try transaction { state in
+    /// `actor` は操作した側（App は "user"、MCP は "mcp:<client>"）。溢れたときの記録の出所になる。
+    public func moveTask(id: UUID, to: TaskDestination, position: Int? = nil, actor: String = "user") throws -> Placement {
+        try checkActor(actor)
+        return try transaction { state in
             var task = try remove(id, from: &state, includeDone: true)
             task.completedAt = nil
-            return try place(task, to: to, position: position, in: &state)
+            return try place(task, to: to, position: position, actor: actor, in: &state)
         }.value
     }
     @discardableResult public func removeTask(id: UUID) throws -> State {
@@ -288,11 +289,15 @@ public struct PolarisStore: Sendable {
                   modes.contains(where: { $0.id == Mode.defaultMode.id }) else { throw PolarisError.invalidState("モード一覧が不正です") }
         }
     }
-    private func place(_ task: Task, to: TaskDestination, position: Int?, in state: inout State) throws -> Placement {
+    private func checkActor(_ actor: String) throws {
+        guard actor == "user" || (actor.hasPrefix("mcp:") && actor.count > 4 && actor.count <= 4 + TextRules.clientMax
+                                  && TextRules.clean(actor) == actor) else { throw PolarisError.invalidInput("不正なsourceです") }
+    }
+    private func place(_ task: Task, to: TaskDestination, position: Int?, actor: String, in state: inout State) throws -> Placement {
         guard position == nil || position! >= 0 else { throw PolarisError.invalidInput("positionは0以上です") }
         let overflow = to == .now && state.today.now.count >= 3
         if overflow {
-            state.lastOverflow = OverflowEvent(taskID: task.id, title: task.title, source: task.source, at: clock())
+            state.lastOverflow = OverflowEvent(taskID: task.id, title: task.title, source: actor, at: clock())
         }
         let destination: TaskDestination = overflow ? .later : to
         if destination == .now {

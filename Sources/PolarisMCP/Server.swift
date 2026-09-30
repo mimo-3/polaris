@@ -89,7 +89,7 @@ public struct MCPServer: Sendable {
         case "polaris_add_task":
             return try json(store.addTask(title: a["title"] as! String, to: TaskDestination(rawValue: a["to"] as? String ?? "later")!, position: integer(a["position"]), source: "mcp:\(clientName)"))
         case "polaris_complete_task": return try json(store.completeTask(id: try uuid(a)).today)
-        case "polaris_move_task": return try json(store.moveTask(id: try uuid(a), to: TaskDestination(rawValue: a["to"] as! String)!, position: integer(a["position"])))
+        case "polaris_move_task": return try json(store.moveTask(id: try uuid(a), to: TaskDestination(rawValue: a["to"] as! String)!, position: integer(a["position"]), actor: "mcp:\(clientName)"))
         case "polaris_remove_task": return try json(store.removeTask(id: try uuid(a)).today)
         case "polaris_rename_task": return try json(store.renameTask(id: try uuid(a), title: a["title"] as! String).today)
         case "polaris_list_later": return try json(store.read().later)
