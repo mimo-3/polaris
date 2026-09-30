@@ -12,13 +12,16 @@ struct Detour: Equatable {
 }
 
 /// 取り消し・4件目・保存失敗など、数秒だけ声の行に出るもの。
+/// `modeChanged` は banner がモード表示を塞いでいるあいだにモードが替わったときだけ出す。
 enum Transient: Equatable {
     case undo(taskID: UUID, index: Int, title: String, next: String?)
     case overflow(taskID: UUID, title: String, client: String?)
+    case modeChanged(Mode)
     case error(String)
 
     var duration: TimeInterval {
         switch self {
+        case .modeChanged: 4
         case .undo: 5
         case .overflow, .error: 6
         }
@@ -40,6 +43,7 @@ enum Voice: Equatable {
             switch t {
             case .undo(let id, _, _, _): "undo-\(id)"
             case .overflow(let id, _, _): "overflow-\(id)"
+            case .modeChanged(let mode): "mode-changed-\(mode.id)"
             case .error(let m): "error-\(m)"
             }
         case .banner(let b): "banner-\(b.text)-\(b.expiresAt.timeIntervalSince1970)"

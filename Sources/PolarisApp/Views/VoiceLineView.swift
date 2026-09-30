@@ -111,6 +111,20 @@ struct VoiceLineView: View {
                     }
                 }
             }
+        case .modeChanged(let mode):
+            // モード表示と同じ glyph と位置にして、「この行はモード」という読み方を崩さない。
+            HStack(spacing: 6) {
+                Image(systemName: mode.symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PolarisTheme.Palette.Mode.tint(mode.tint))
+                    .frame(width: 16)
+                    .accessibilityHidden(true)
+                MetaText(text: Copy.modeChanged(mode.label), color: theme.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .frame(height: 16)
         case .error(let message):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "exclamationmark.circle")
