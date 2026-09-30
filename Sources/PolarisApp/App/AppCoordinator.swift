@@ -84,8 +84,13 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             window.isReleasedWhenClosed = false
             settingsWindow = window
         }
-        let view = SettingsView(conflicts: HotKeyCenter.shared.conflicts).environment(\.polaris, model.theme)
-        settingsWindow?.contentView = NSHostingView(rootView: view)
+        let view = SettingsView(conflicts: HotKeyCenter.shared.conflicts)
+            .environment(model)
+            .environment(\.polaris, model.theme)
+        // モードの編集で高さが変わるので、窓の大きさは中身に合わせる。
+        let controller = NSHostingController(rootView: view)
+        controller.sizingOptions = .preferredContentSize
+        settingsWindow?.contentViewController = controller
         settingsWindow?.center()
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
