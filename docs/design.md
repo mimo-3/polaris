@@ -556,7 +556,8 @@ Carbon `RegisterEventHotKey` で登録する。設定から変えられる。
 
 | 要素 | ラベル / 値 | 特性・操作 |
 |---|---|---|
-| パネル | 「Polaris。北極星、{northStar}。本命、{title}。{mode}」／値「展開中」「たたんでいる」 | `children: .contain`。既定操作（AXPress）で開閉、操作「展開する」「たたむ」。窓の subrole は floatingWindow |
+| パネル | 「Polaris。北極星、{northStar}。本命、{title}。{mode}」／値「展開中」「たたんでいる」 | `children: .contain`（SwiftUI はこのコンテナを AX 要素として出さないので、開閉はここに付けない）。窓の subrole は floatingWindow、窓の custom action に「展開する」「たたむ」 |
+| モード表示の行 | 「{mode}」／値「展開中」「たたんでいる」 | ボタン。既定操作（AXPress）で開閉、ヒント「押すと付箋を展開する／たたむ」、操作「展開する」「たたむ」。クリックでも開閉する行なので見た目は変えない |
 | 北極星 | 「北極星、{text}」／空:「北極星はまだない」 | `.isHeader`、操作「編集」 |
 | 本命 | 「本命、{title}」 | ボタン。既定操作（AXPress）で完了、ヒント「押すと完了にする」。操作「完了にする」「あとでに送る」 |
 | 2・3件目 | 「いまの{n}件目、{title}」 | ボタン。既定操作で完了。操作「本命にする」「完了にする」「あとでに送る」 |
