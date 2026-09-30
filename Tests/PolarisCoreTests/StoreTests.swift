@@ -388,4 +388,70 @@ final class StoreTests {
         #expect(try Data(contentsOf: backup) == Data("{broken".utf8))
         #expect(try subject.read().today.northStar == "")
     }
+
+    @Test func testModesDefaultToBuiltInsWhenKeyIsMissing() throws {
+        let subject = store(at: try home(), date: epoch)
+        let state = try subject.read()
+        #expect(state.modes == nil)
+        #expect(state.availableModes == Mode.defaults)
+        #expect(try subject.setMode("reading").today.mode.id == "reading")
+    }
+
+    @Test func testUpsertModeAddsRenamesAndCanBeSelected() throws {
+        let subject = store(at: try home(), date: epoch)
+        let added = try subject.upsertMode(Mode(id: "deep", label: "  集中の日 ", symbol: "circle", tint: "slate",
+                                                avoidApps: ["com.example.a", "com.example.a", " com.example.b "]))
+        let mode = try #require(added.availableModes.last)
+        #expect(added.availableModes.count == Mode.defaults.count + 1)
+        #expect(mode.label == "集中の日")
+        #expect(mode.avoidApps == ["com.example.a", "com.example.b"])
+
+        _ = try subject.setMode("deep")
+        var renamed = mode; renamed.label = "深く潜る日"; renamed.avoidApps = []
+        let state = try subject.upsertMode(renamed)
+        #expect(state.availableModes.last?.label == "深く潜る日")
+        #expect(state.today.mode == renamed)
+        #expect(state.availableModes.count == Mode.defaults.count + 1)
+    }
+
+    @Test func testUpsertModeRejectsEmptyOrLongLabels() throws {
+        let subject = store(at: try home(), date: epoch)
+        #expect(throws: PolarisError.self) { try subject.upsertMode(Mode(id: "x", label: " ", symbol: "circle", tint: "slate")) }
+        #expect(throws: PolarisError.self) {
+            try subject.upsertMode(Mode(id: "x", label: String(repeating: "あ", count: TextRules.modeLabelMax + 1), symbol: "circle", tint: "slate"))
+        }
+        #expect(throws: PolarisError.self) { try subject.upsertMode(Mode(id: "", label: "名前", symbol: "circle", tint: "slate")) }
+        #expect(try subject.read().modes == nil)
+    }
+
+    @Test func testRemoveModeProtectsDefaultAndCurrentMode() throws {
+        let subject = store(at: try home(), date: epoch)
+        #expect(throws: PolarisError.self) { try subject.removeMode(id: Mode.defaultMode.id) }
+        _ = try subject.setMode("rest")
+        #expect(throws: PolarisError.self) { try subject.removeMode(id: "rest") }
+        let state = try subject.removeMode(id: "reading")
+        #expect(state.availableModes.map(\.id) == ["work", "rest"])
+        #expect(throws: PolarisError.self) { try subject.setMode("reading") }
+        #expect(throws: PolarisError.self) { try subject.removeMode(id: "reading") }
+    }
+
+    @Test func testRolloverUsesEditedDefaultMode() throws {
+        let directory = try home()
+        var work = Mode.defaultMode; work.label = "しごと"; work.avoidApps = ["com.example.chat"]
+        _ = try store(at: directory, date: epoch).upsertMode(work)
+        _ = try store(at: directory, date: epoch).setMode("rest")
+
+        let next = try store(at: directory, date: epoch.addingTimeInterval(86400)).read()
+
+        #expect(next.today.mode == work)
+    }
+
+    @Test func testDecodingStateWithModesRoundTrips() throws {
+        let directory = try home()
+        let subject = store(at: directory, date: epoch)
+        _ = try subject.upsertMode(Mode(id: "deep", label: "集中の日", symbol: "circle", tint: "moss"))
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let state = try decoder.decode(State.self, from: Data(contentsOf: subject.stateURL))
+        #expect(state.modes?.map(\.id) == ["work", "reading", "rest", "deep"])
+    }
 }
