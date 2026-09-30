@@ -71,11 +71,17 @@ public struct State: Codable, Sendable, Equatable {
     public var banner: Banner?
     public var history: [Day]
     public var lastOverflow: OverflowEvent?
-    public init(schemaVersion: Int = 1, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil, history: [Day] = [], lastOverflow: OverflowEvent? = nil) {
+    /// 設定で編集したモード一覧。キーが無い古い状態では nil で、`Mode.defaults` を使う。
+    public var modes: [Mode]?
+    public init(schemaVersion: Int = 1, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil, history: [Day] = [], lastOverflow: OverflowEvent? = nil, modes: [Mode]? = nil) {
         self.schemaVersion = schemaVersion; self.revision = revision; self.today = today
         self.later = later; self.banner = banner; self.history = history
-        self.lastOverflow = lastOverflow
+        self.lastOverflow = lastOverflow; self.modes = modes
     }
+    /// 選べるモード。先頭が既定モード。
+    public var availableModes: [Mode] { modes ?? Mode.defaults }
+    /// 日付が替わったときに戻すモード。名前やアプリを編集していればそれを使う。
+    public var defaultMode: Mode { availableModes.first { $0.id == Mode.defaultMode.id } ?? Mode.defaultMode }
 }
 
 public enum TaskDestination: String, Codable, Sendable { case now, later }

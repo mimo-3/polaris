@@ -7,6 +7,8 @@ public enum TextRules {
     public static let noteMax = 500
     public static let bannerMax = 280
     public static let clientMax = 64
+    public static let modeLabelMax = 20
+    public static let bundleIDMax = 255
 
     /// 改行・タブは空白に、それ以外の制御文字と双方向制御文字は取り除き、前後の空白を落とす。
     public static func clean(_ text: String) -> String {
