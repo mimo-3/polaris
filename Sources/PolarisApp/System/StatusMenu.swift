@@ -60,25 +60,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(action(Copy.editNorthStar, key: "p") { $0.showQuickEdit(.northStar) })
         menu.addItem(action(Copy.addTask, key: "n") { $0.showQuickEdit(.add) })
         menu.addItem(action(Copy.redoMorning) { $0.showMorning(key: true) })
-        menu.addItem(.separator())
-
-        let hasStar = today.star != nil
-        let end = action(Copy.starEndMenu) { $0.model.endNorthStar() }
-        end.isEnabled = hasStar
-        menu.addItem(end)
-        let drop = action(Copy.starDropMenu) { $0.model.endNorthStar(achieved: false) }
-        drop.isEnabled = hasStar
-        menu.addItem(drop)
-        let queued = NSMenu()
-        let stars = app.model.state.queuedStars
-        if stars.isEmpty { queued.addItem(disabled(Copy.starsQueueEmpty)) }
-        for star in stars {
-            let title = star.text.count > 32 ? String(star.text.prefix(32)) + "…" : star.text
-            queued.addItem(action(title) { $0.model.activateNorthStar(star.id) })
-        }
-        menu.addItem(submenu(Copy.starsMenu, queued))
-        menu.addItem(action(Copy.starsWindowMenu) { $0.showStars() })
-        menu.addItem(.separator())
 
         let modes = NSMenu()
         for mode in app.model.modes {
