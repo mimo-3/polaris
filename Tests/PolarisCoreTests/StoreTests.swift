@@ -42,6 +42,95 @@ final class StoreTests {
         #expect(overflow.destination == .later)
     }
 
+    @Test func testOverflowingMCPAdditionRecordsTaskAndClock() throws {
+        let subject = store(at: try home(), date: epoch)
+        for title in ["一番", "二番", "三番"] { _ = try subject.addTask(title: title, to: .now) }
+
+        let placement = try subject.addTask(title: "四番", to: .now, source: "mcp:claude")
+
+        #expect(placement.overflowed)
+        #expect(try subject.read().lastOverflow == OverflowEvent(
+            taskID: placement.task.id, title: "四番", source: "mcp:claude", at: epoch
+        ))
+    }
+
+    @Test func testOrdinaryAdditionsLeaveLastOverflowNil() throws {
+        let subject = store(at: try home(), date: epoch)
+
+        _ = try subject.addTask(title: "今やる", to: .now, source: "mcp:claude")
+        _ = try subject.addTask(title: "後で", to: .later, source: "mcp:claude")
+
+        #expect(try subject.read().lastOverflow == nil)
+    }
+
+    @Test func testOrdinaryPlacementsPreservePreviousOverflow() throws {
+        let subject = store(at: try home(), date: epoch)
+        for title in ["一番", "二番", "三番"] { _ = try subject.addTask(title: title, to: .now) }
+        let overflow = try subject.addTask(title: "四番", to: .now, source: "mcp:claude")
+        let event = try #require(try subject.read().lastOverflow)
+
+        _ = try subject.addTask(title: "後で", to: .later)
+        #expect(try subject.read().lastOverflow == event)
+        let first = try #require(try subject.read().today.now.first)
+        _ = try subject.completeTask(id: first.id)
+        _ = try subject.moveTask(id: overflow.task.id, to: .now)
+
+        #expect(try subject.read().lastOverflow == event)
+    }
+
+    @Test func testOverflowingMoveReplacesEventUsingCurrentClock() throws {
+        let directory = try home()
+        let initial = store(at: directory, date: epoch)
+        for title in ["一番", "二番", "三番"] { _ = try initial.addTask(title: title, to: .now) }
+        _ = try initial.addTask(title: "最初のあふれ", to: .now, source: "mcp:claude")
+        let task = try initial.addTask(title: "移動する", to: .later, source: "mcp:codex").task
+        let movedAt = epoch.addingTimeInterval(60)
+        let subject = store(at: directory, date: movedAt)
+
+        let placement = try subject.moveTask(id: task.id, to: .now)
+
+        #expect(placement.overflowed)
+        #expect(try subject.read().lastOverflow == OverflowEvent(
+            taskID: task.id, title: task.title, source: task.source, at: movedAt
+        ))
+    }
+
+    @Test func testRolloverClearsLastOverflow() throws {
+        let directory = try home()
+        let previous = store(at: directory, date: epoch)
+        for title in ["一番", "二番", "三番", "四番"] { _ = try previous.addTask(title: title, to: .now) }
+        _ = try #require(try previous.read().lastOverflow)
+
+        let state = try store(at: directory, date: epoch.addingTimeInterval(86400)).read()
+
+        #expect(state.lastOverflow == nil)
+    }
+
+    @Test func testDecodingStateWithoutLastOverflowKeepsSchemaVersionOne() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "revision": 7,
+          "today": {
+            "date": "2026-06-01",
+            "mode": { "id": "work", "label": "仕事の日", "symbol": "briefcase", "tint": "slate", "avoidApps": [] },
+            "northStar": "以前の状態",
+            "now": [],
+            "done": []
+          },
+          "later": [],
+          "history": []
+        }
+        """
+
+        let state = try JSONDecoder().decode(State.self, from: Data(json.utf8))
+
+        #expect(state.lastOverflow == nil)
+        #expect(state.schemaVersion == 1)
+        #expect(state.revision == 7)
+        #expect(state.today.northStar == "以前の状態")
+    }
+
     @Test func testCompletingFocusPromotesNextAndPreservesCompletionTime() throws {
         let subject = store(at: try home(), date: epoch)
         let first = try subject.addTask(title: "本命", to: .now)
