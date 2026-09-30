@@ -95,6 +95,8 @@ enum Copy {
     static let expandedValue = "展開中"
     static let collapsedValue = "たたんでいる"
     static let completeHint = "押すと完了にする"
+    static let expandHint = "押すと付箋を展開する"
+    static let collapseHint = "押すと付箋をたたむ"
     static func modeChanged(_ label: String) -> String { "\(label)に切り替えた" }
 
     // MARK: 設定
