@@ -190,11 +190,7 @@ private struct ModeSettings: View {
                                 .lineLimit(1)
                                 .help(bundleID)
                             Spacer(minLength: S.s)
-                            Button(Copy.removeApp) {
-                                var next = mode
-                                next.avoidApps.removeAll { $0 == bundleID }
-                                model.saveMode(next)
-                            }
+                            Button(Copy.removeApp) { model.updateAvoidApps(mode.id, remove: [bundleID]) }
                             .buttonStyle(SmallButtonStyle())
                             .accessibilityLabel(Copy.removeAppLabel(app))
                         }
@@ -235,12 +231,10 @@ private struct ModeSettings: View {
 
     /// 空にしたら元の名前に戻す。変わっていなければ書かない。
     private func commitName() {
-        guard var mode = selected else { return }
+        guard let mode = selected else { return }
         let trimmed = TextRules.clean(name)
         guard !trimmed.isEmpty else { name = mode.label; return }
-        guard trimmed != mode.label else { return }
-        mode.label = trimmed
-        model.saveMode(mode)
+        model.renameMode(mode.id, to: trimmed)
     }
 
     private func pickApps(for mode: Mode) {
@@ -252,9 +246,6 @@ private struct ModeSettings: View {
         panel.treatsFilePackagesAsDirectories = false
         panel.prompt = Copy.pickAppsPrompt
         guard panel.runModal() == .OK else { return }
-        let ids = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
-        var next = mode
-        for id in ids where !next.avoidApps.contains(id) { next.avoidApps.append(id) }
-        model.saveMode(next)
+        model.updateAvoidApps(mode.id, add: panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier })
     }
 }

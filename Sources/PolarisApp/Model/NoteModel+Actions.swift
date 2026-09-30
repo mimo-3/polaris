@@ -17,10 +17,16 @@ extension NoteModel {
 
     // MARK: モードの編集（設定画面）
 
-    /// 名前を変えたり寄り道のアプリを足し引きしたりした結果を保存する。
-    func saveMode(_ mode: Mode) {
-        guard modes.first(where: { $0.id == mode.id }) != mode else { return }
-        run { try $0.upsertMode(mode) }
+    /// 名前だけを変える。寄り道のアプリの変更と並んでも互いに消さないよう、ストアで最新のモードに当てる。
+    func renameMode(_ id: String, to label: String) {
+        guard modes.first(where: { $0.id == id })?.label != label else { return }
+        run { try $0.renameMode(id: id, label: label) }
+    }
+
+    /// 寄り道のアプリを足し引きする。差分だけを送る。
+    func updateAvoidApps(_ id: String, add: [String] = [], remove: [String] = []) {
+        guard !add.isEmpty || !remove.isEmpty else { return }
+        run { try $0.updateAvoidApps(id: id, add: add, remove: remove) }
     }
 
     /// 新しいモードを末尾に足し、その id を返す。見た目は既定と同じ控えめな glyph にする。
