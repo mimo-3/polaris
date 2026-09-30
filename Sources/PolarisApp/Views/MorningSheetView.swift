@@ -90,7 +90,7 @@ struct MorningSheetView: View {
             title(Copy.step1Title)
             Spacer().frame(height: S.m)
             VStack(spacing: S.s) {
-                ForEach(Array(Mode.defaults.enumerated()), id: \.element.id) { index, mode in
+                ForEach(Array(model.modes.enumerated()), id: \.element.id) { index, mode in
                     ModeChoice(mode: mode, key: index + 1, selected: mode.id == modeID,
                                focused: mode.id == modeID && keyboardVisible && !onPrimary) { choose(mode) }
                 }
@@ -282,11 +282,11 @@ struct MorningSheetView: View {
         }
         switch step {
         case 1:
-            if let n = Int(press.characters), (1...Mode.defaults.count).contains(n) {
-                choose(Mode.defaults[n - 1]); return .handled
+            if let n = Int(press.characters), (1...model.modes.count).contains(n) {
+                choose(model.modes[n - 1]); return .handled
             }
             if press.key == .downArrow || press.key == .upArrow {
-                let modes = Mode.defaults
+                let modes = model.modes
                 let current = modes.firstIndex { $0.id == modeID } ?? 0
                 let next = min(max(current + (press.key == .downArrow ? 1 : -1), 0), modes.count - 1)
                 onPrimary = false

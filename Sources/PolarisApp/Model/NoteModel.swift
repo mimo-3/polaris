@@ -75,6 +75,8 @@ final class NoteModel {
     // MARK: 派生値
     var today: Day { state.today }
     var mode: Mode { state.today.mode }
+    /// 設定で編集したモード一覧。先頭が既定モード。
+    var modes: [Mode] { state.availableModes }
     var lead: Item? { state.today.now.first }
     var expanded: Bool {
         guard !clickThrough || optionPeek else { return false }
