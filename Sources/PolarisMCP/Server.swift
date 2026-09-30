@@ -81,9 +81,25 @@ public struct MCPServer: Sendable {
         case "polaris_get_today":
             let s = try store.read()
             return ["date": s.today.date, "mode": try json(s.today.mode), "northStar": s.today.northStar,
+                    "northStarID": s.today.star?.id.uuidString as Any? ?? NSNull(),
+                    "northStarQueue": try json(s.queuedStars),
                     "now": try json(s.today.now), "done": try json(s.today.done), "note": s.today.note as Any? ?? NSNull(),
                     "laterCount": s.later.count, "banner": try s.banner.map { try json($0) } ?? NSNull(), "revision": s.revision]
         case "polaris_set_north_star": return try json(store.setNorthStar(a["text"] as! String).today)
+        case "polaris_list_north_stars":
+            let s = try store.read()
+            return ["active": try s.today.star.map { try json($0) } ?? NSNull(),
+                    "queue": try json(s.queuedStars), "pastCount": s.pastStars.count]
+        case "polaris_add_north_star":
+            return try json(store.addNorthStar(text: a["text"] as! String, position: integer(a["position"])))
+        case "polaris_complete_north_star":
+            let outcome = (a["outcome"] as? String).flatMap(NorthStarOutcome.init(rawValue:)) ?? .achieved
+            let result = try store.completeNorthStar(outcome: outcome)
+            return ["completed": try json(result.completed), "next": try result.next.map { try json($0) } ?? NSNull()]
+        case "polaris_switch_north_star": return try json(store.activateNorthStar(id: try uuid(a)).today)
+        case "polaris_remove_north_star": return try json(store.removeNorthStar(id: try uuid(a)).queuedStars)
+        case "polaris_get_north_star_log":
+            return try json(store.northStarLog(limit: integer(a["limit"]) ?? 30))
         case "polaris_set_mode": return try json(store.setMode(a["mode_id"] as! String).today.mode)
         case "polaris_list_modes": return try json(store.read().availableModes)
         case "polaris_add_task":
@@ -149,12 +165,22 @@ public struct MCPServer: Sendable {
         let id: [String: Any] = ["type": "string", "format": "uuid"]
         let destination: [String: Any] = ["type": "string", "enum": ["now", "later"], "default": "later"]
         let position: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。now満杯ならlater末尾。"]
+        let starText: [String: Any] = ["type": "string", "maxLength": TextRules.northStarMax]
+        let starPosition: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。"]
         func tool(_ name: String, _ description: String, _ properties: [String: [String: Any]] = [:], _ required: [String] = []) -> [String: Any] {
             ["name": name, "description": description + caution, "inputSchema": ["type": "object", "properties": properties, "required": required, "additionalProperties": false]]
         }
         return [
             tool("polaris_get_today", "今日のモード、北極星、now、done、later件数、bannerを取得する。"),
-            tool("polaris_set_north_star", "北極星を1文で設定する。空文字で消去。", ["text": ["type": "string", "maxLength": TextRules.northStarMax]], ["text"]),
+            tool("polaris_set_north_star", "今日の北極星の文面を設定する。空文字なら控えの先頭へ戻す。", ["text": starText], ["text"]),
+            tool("polaris_list_north_stars", "今日の北極星、控え、終わった件数を取得する。"),
+            tool("polaris_add_north_star", "北極星を控えに追加する。最大20件。", ["text": starText.merging(["minLength": 1]) { $1 }, "position": starPosition], ["text"]),
+            tool("polaris_complete_north_star", "今日の北極星を終え、控えの先頭があれば今日にする。",
+                 ["outcome": ["type": "string", "enum": ["achieved", "dropped"], "default": "achieved"]]),
+            tool("polaris_switch_north_star", "控えの北極星を今日にする。元の今日は控えの先頭へ。", ["id": id], ["id"]),
+            tool("polaris_remove_north_star", "控えから北極星を削除する。ログには残さない。", ["id": id], ["id"]),
+            tool("polaris_get_north_star_log", "終わった北極星を新しい順に取得する。",
+                 ["limit": ["type": "integer", "minimum": 1, "maximum": 500, "default": 30]]),
             tool("polaris_set_mode", "今日のモードを選ぶ。mode_idはpolaris_list_modesのid。", ["mode_id": ["type": "string", "minLength": 1]], ["mode_id"]),
             tool("polaris_list_modes", "設定で編集したモード一覧を取得する。先頭が既定モード。"),
             tool("polaris_add_task", "タスクを追加する。nowは最大3件。満杯ならlaterへ送りoverflowedで返す。", ["title": title, "to": destination, "position": position], ["title"]),

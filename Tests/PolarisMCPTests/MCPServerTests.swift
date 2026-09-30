@@ -51,7 +51,8 @@ final class MCPServerTests {
         let list = try #require(listed["result"] as? [String: Any])
         let tools = try #require(list["tools"] as? [[String: Any]])
         let names = Set(tools.compactMap { $0["name"] as? String })
-        #expect(names == Set(["polaris_get_today", "polaris_set_north_star", "polaris_set_mode", "polaris_list_modes", "polaris_add_task", "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_rename_task", "polaris_list_later", "polaris_nudge", "polaris_get_history"]))
+        #expect(names == Set(["polaris_get_today", "polaris_set_north_star", "polaris_list_north_stars", "polaris_add_north_star", "polaris_complete_north_star", "polaris_switch_north_star", "polaris_remove_north_star", "polaris_get_north_star_log", "polaris_set_mode", "polaris_list_modes", "polaris_add_task", "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_rename_task", "polaris_list_later", "polaris_nudge", "polaris_get_history"]))
+        #expect(tools.count == 18)
         for tool in tools {
             let schema = try #require(tool["inputSchema"] as? [String: Any])
             #expect(schema["type"] as? String == "object")
@@ -170,5 +171,39 @@ final class MCPServerTests {
         #expect(try store.read().today.mode.id == "deep")
         let removed = try call(&subject, "polaris_set_mode", arguments: ["mode_id": "reading"])
         #expect(removed["isError"] as? Bool == true)
+    }
+
+    @Test func testNorthStarToolsRoundTrip() throws {
+        var subject = try initializedServer()
+        _ = try call(&subject, "polaris_set_north_star", arguments: ["text": "今日の星"])
+        let added = try #require(try payload(call(&subject, "polaris_add_north_star", arguments: ["text": "控えの星"])) as? [String: Any])
+        let queuedID = try #require(added["id"] as? String)
+
+        let listed = try #require(try payload(call(&subject, "polaris_list_north_stars")) as? [String: Any])
+        #expect((listed["active"] as? [String: Any])?["text"] as? String == "今日の星")
+        #expect((listed["queue"] as? [[String: Any]])?.count == 1)
+        #expect(listed["pastCount"] as? Int == 0)
+
+        let today = try #require(try payload(call(&subject, "polaris_get_today")) as? [String: Any])
+        #expect(today["northStar"] as? String == "今日の星")
+        #expect(today["northStarID"] is String)
+        #expect((today["northStarQueue"] as? [[String: Any]])?.first?["id"] as? String == queuedID)
+
+        let completed = try #require(try payload(call(&subject, "polaris_complete_north_star", arguments: ["outcome": "achieved"])) as? [String: Any])
+        #expect((completed["completed"] as? [String: Any])?["text"] as? String == "今日の星")
+        #expect((completed["next"] as? [String: Any])?["id"] as? String == queuedID)
+
+        let log = try #require(try payload(call(&subject, "polaris_get_north_star_log")) as? [[String: Any]])
+        #expect(log.first?["text"] as? String == "今日の星")
+
+        let another = try #require(try payload(call(&subject, "polaris_add_north_star", arguments: ["text": "切り替え先"])) as? [String: Any])
+        let switchID = try #require(another["id"] as? String)
+        let switched = try call(&subject, "polaris_switch_north_star", arguments: ["id": switchID])
+        #expect(switched["isError"] as? Bool == false)
+        let after = try #require(try payload(call(&subject, "polaris_get_today")) as? [String: Any])
+        #expect(after["northStarID"] as? String == switchID)
+
+        let removed = try call(&subject, "polaris_remove_north_star", arguments: ["id": queuedID])
+        #expect(removed["isError"] as? Bool == false)
     }
 }
