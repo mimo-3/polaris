@@ -8,7 +8,7 @@ struct MiniDetourView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             let text = model.today.northStar
-            Text(text.isEmpty ? Copy.northStarEmpty : WordWrap.japanese(text))
+            Text(text.isEmpty ? Copy.northStarNone : WordWrap.japanese(text))
                 .font(PolarisTheme.Typography.northStar)
                 .lineSpacing(PolarisTheme.Typography.northStarLineSpacing)
                 .foregroundStyle(theme.ink)

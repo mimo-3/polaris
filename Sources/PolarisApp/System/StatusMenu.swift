@@ -44,7 +44,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let today = app.model.today
 
-        let star = today.northStar.isEmpty ? Copy.northStarEmpty : today.northStar
+        let star = today.northStar.isEmpty ? Copy.northStarNone : today.northStar
         menu.addItem(disabled(star.count > 24 ? String(star.prefix(24)) + "…" : star))
         menu.addItem(disabled(today.mode.label))
         menu.addItem(.separator())
