@@ -195,7 +195,7 @@ extension NoteModel {
     var voiceActionCount: Int {
         guard !clickThrough || optionPeek else { return 0 }
         switch voice {
-        case .mode, .transient(.error): return 0
+        case .mode, .transient(.error), .transient(.modeChanged): return 0
         case .detour: return 2
         case .transient(.undo), .transient(.overflow), .banner: return 1
         }
@@ -208,7 +208,7 @@ extension NoteModel {
         case .transient(.undo): undo()
         case .transient(.overflow): swapping == nil ? beginSwap() : cancelSwap()
         case .banner: dismissBanner()
-        case .mode, .transient(.error): break
+        case .mode, .transient(.error), .transient(.modeChanged): break
         }
     }
 
