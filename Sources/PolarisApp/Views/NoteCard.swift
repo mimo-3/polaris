@@ -28,12 +28,8 @@ struct NoteCard: View {
         .onTapGesture { if !model.isDayClosed { model.togglePin() } }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(panelLabel)
-        .accessibilityValue(model.expanded ? Copy.expandedValue : Copy.collapsedValue)
-        // クリックの開閉は onTapGesture なので AXPress が無い。既定の操作と名前付きの操作で同じことを出す。
-        .accessibilityAction { model.setExpanded(!model.expanded) }
-        .accessibilityAction(named: model.expanded ? Copy.collapseAction : Copy.expandAction) {
-            model.setExpanded(!model.expanded)
-        }
+        // 開閉の AX 操作は、このコンテナではなくモード表示の行とパネルに付ける。
+        // SwiftUI は .contain のコンテナを AX の要素として出さず、ここに付けた操作は届かないため。
     }
 
     private var panelLabel: String {
