@@ -15,6 +15,25 @@ extension NoteModel {
         run { try $0.setMode(id) }
     }
 
+    // MARK: モードの編集（設定画面）
+
+    /// 名前を変えたり寄り道のアプリを足し引きしたりした結果を保存する。
+    func saveMode(_ mode: Mode) {
+        guard modes.first(where: { $0.id == mode.id }) != mode else { return }
+        run { try $0.upsertMode(mode) }
+    }
+
+    /// 新しいモードを末尾に足し、その id を返す。見た目は既定と同じ控えめな glyph にする。
+    @discardableResult func addMode(label: String) -> String {
+        let mode = Mode(id: "mode-\(UUID().uuidString.prefix(8).lowercased())", label: label, symbol: "circle", tint: "slate")
+        run { try $0.upsertMode(mode) }
+        return mode.id
+    }
+
+    func removeMode(_ id: String) {
+        run { try $0.removeMode(id: id) }
+    }
+
     /// いま（満杯ならあとで）かあとでに足す。満杯で溢れたら声の行で知らせる。
     func addTask(_ title: String, to destination: TaskDestination, position: Int? = nil,
                  then done: @escaping @MainActor (Placement) -> Void = { _ in }) {
