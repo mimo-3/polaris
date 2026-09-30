@@ -556,10 +556,10 @@ Carbon `RegisterEventHotKey` で登録する。設定から変えられる。
 
 | 要素 | ラベル / 値 | 特性・操作 |
 |---|---|---|
-| パネル | 「Polaris。北極星、{northStar}。本命、{title}。{mode}」 | `children: .contain` |
+| パネル | 「Polaris。北極星、{northStar}。本命、{title}。{mode}」／値「展開中」「たたんでいる」 | `children: .contain`。既定操作（AXPress）で開閉、操作「展開する」「たたむ」。窓の subrole は floatingWindow |
 | 北極星 | 「北極星、{text}」／空:「北極星はまだない」 | `.isHeader`、操作「編集」 |
-| 本命 | 「本命、{title}」 | 操作「完了にする」「あとでに送る」 |
-| 2・3件目 | 「いまの{n}件目、{title}」 | 操作「本命にする」「完了にする」「あとでに送る」 |
+| 本命 | 「本命、{title}」 | ボタン。既定操作（AXPress）で完了、ヒント「押すと完了にする」。操作「完了にする」「あとでに送る」 |
+| 2・3件目 | 「いまの{n}件目、{title}」 | ボタン。既定操作で完了。操作「本命にする」「完了にする」「あとでに送る」 |
 | 点・リング | 「{title}を完了にする」 | ボタン。完了後は `accessibilityValue("完了")` |
 | あとで | 「あとで、{n}件」 | ボタン、展開状態を持つ |
 | モード glyph | 読ませない | `accessibilityHidden(true)`（名前は文字で読む） |
