@@ -149,7 +149,7 @@ struct BackgroundMenuItems: View {
             Button(Copy.hide15) { app.note.hide(for: 15) }
             Button(Copy.clickThrough) { app.note.setClickThrough(!app.model.clickThrough) }
             Menu(Copy.modeMenu) {
-                ForEach(Mode.defaults) { mode in Button(mode.label) { app.model.setMode(mode.id) } }
+                ForEach(app.model.modes) { mode in Button(mode.label) { app.model.setMode(mode.id) } }
             }
             Menu(Copy.cornerMenu) {
                 ForEach(Corner.menuOrder, id: \.self) { corner in Button(corner.label) { app.note.move(to: corner) } }
