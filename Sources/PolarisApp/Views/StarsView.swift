@@ -66,6 +66,10 @@ struct StarsView: View {
                         Button(Copy.starsMoveUp) { model.moveQueuedNorthStar(star.id, to: index - 1) }
                             .buttonStyle(SmallButtonStyle())
                     }
+                    if index < stars.count - 1 {
+                        Button(Copy.starsMoveDown) { model.moveQueuedNorthStar(star.id, to: index + 1) }
+                            .buttonStyle(SmallButtonStyle())
+                    }
                     Button(Copy.delete) { model.removeQueuedNorthStar(star.id) }
                         .buttonStyle(SmallButtonStyle())
                     Button(Copy.starUseNext) { model.activateNorthStar(star.id) }
