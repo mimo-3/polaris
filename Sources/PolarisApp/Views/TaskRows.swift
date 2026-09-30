@@ -8,8 +8,9 @@ struct TaskRow: View {
     var namespace: Namespace.ID
     @Environment(NoteModel.self) private var model
     @Environment(\.polaris) private var theme
-    /// 途中で取り消されても（メニューが開いた・行が消えた）0 に戻るよう GestureState で持つ。
-    @GestureState private var dragY: CGFloat = 0
+    @State var dragY: CGFloat = 0
+    /// ジェスチャが取り消されたとき（メニューが開いた等）は onEnded が来ない。これの立ち下がりで後始末する。
+    @GestureState private var pressing = false
     @FocusState var fieldFocused: Bool
 
     private var isLead: Bool { index == 0 }
@@ -37,9 +38,12 @@ struct TaskRow: View {
         }
         .onDisappear { model.rowFrames[task.id] = nil }
         .offset(y: dragY)
-        .animation(PolarisTheme.Motion.promote(theme.reduceMotion), value: dragY == 0)
         .zIndex(dragY == 0 ? 0 : 1)
-        .onChange(of: dragY != 0) { _, active in model.dragging = active }
+        .onChange(of: pressing) { _, held in
+            guard !held else { return }
+            model.dragging = false
+            if dragY != 0 { withAnimation(PolarisTheme.Motion.promote(theme.reduceMotion)) { dragY = 0 } }
+        }
         .gesture(reorderGesture, including: model.expanded && !renaming ? .all : .subviews)
         .contextMenu { if !renaming { RowMenuItems(task: task, index: index) } }
         .accessibilityElement(children: .combine)
@@ -138,10 +142,16 @@ struct TaskRow: View {
 
     private var reorderGesture: some Gesture {
         DragGesture(minimumDistance: 4)
-            .updating($dragY) { value, state, _ in state = value.translation.height }
+            .updating($pressing) { _, state, _ in state = true }
+            .onChanged { value in
+                model.dragging = true
+                dragY = value.translation.height
+            }
             .onEnded { value in
                 let step = PolarisTheme.Metrics.rowHeight + PolarisTheme.Space.s
                 let target = min(max(index + Int((value.translation.height / step).rounded()), 0), model.today.now.count - 1)
+                withAnimation(PolarisTheme.Motion.promote(theme.reduceMotion)) { dragY = 0 }
+                model.dragging = false
                 model.reorder(task.id, to: target)
             }
     }
