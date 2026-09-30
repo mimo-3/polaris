@@ -53,6 +53,16 @@ public struct Banner: Codable, Sendable, Equatable {
     }
 }
 
+public struct OverflowEvent: Codable, Sendable, Equatable {
+    public var taskID: UUID
+    public var title: String
+    public var source: String
+    public var at: Date
+    public init(taskID: UUID, title: String, source: String, at: Date) {
+        self.taskID = taskID; self.title = title; self.source = source; self.at = at
+    }
+}
+
 public struct State: Codable, Sendable, Equatable {
     public var schemaVersion: Int
     public var revision: Int
@@ -60,9 +70,11 @@ public struct State: Codable, Sendable, Equatable {
     public var later: [Task]
     public var banner: Banner?
     public var history: [Day]
-    public init(schemaVersion: Int = 1, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil, history: [Day] = []) {
+    public var lastOverflow: OverflowEvent?
+    public init(schemaVersion: Int = 1, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil, history: [Day] = [], lastOverflow: OverflowEvent? = nil) {
         self.schemaVersion = schemaVersion; self.revision = revision; self.today = today
         self.later = later; self.banner = banner; self.history = history
+        self.lastOverflow = lastOverflow
     }
 }
 

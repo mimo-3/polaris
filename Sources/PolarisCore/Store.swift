@@ -234,6 +234,7 @@ public struct PolarisStore: Sendable {
             state.history.append(archived)
             state.later = state.today.now + state.later
             state.today = Day(date: key)
+            state.lastOverflow = nil
         }
         let cutoff = dateKey(calendar.date(byAdding: .day, value: -90, to: now) ?? now)
         state.history = Array(state.history.filter { $0.date >= cutoff }
@@ -255,6 +256,9 @@ public struct PolarisStore: Sendable {
     private func place(_ task: Task, to: TaskDestination, position: Int?, in state: inout State) throws -> Placement {
         guard position == nil || position! >= 0 else { throw PolarisError.invalidInput("positionは0以上です") }
         let overflow = to == .now && state.today.now.count >= 3
+        if overflow {
+            state.lastOverflow = OverflowEvent(taskID: task.id, title: task.title, source: task.source, at: clock())
+        }
         let destination: TaskDestination = overflow ? .later : to
         if destination == .now {
             state.today.now.insert(task, at: min(position ?? state.today.now.count, state.today.now.count))
