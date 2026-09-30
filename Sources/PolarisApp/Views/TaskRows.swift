@@ -8,7 +8,8 @@ struct TaskRow: View {
     var namespace: Namespace.ID
     @Environment(NoteModel.self) private var model
     @Environment(\.polaris) private var theme
-    @State var dragY: CGFloat = 0
+    /// 途中で取り消されても（メニューが開いた・行が消えた）0 に戻るよう GestureState で持つ。
+    @GestureState private var dragY: CGFloat = 0
     @FocusState var fieldFocused: Bool
 
     private var isLead: Bool { index == 0 }
@@ -36,7 +37,9 @@ struct TaskRow: View {
         }
         .onDisappear { model.rowFrames[task.id] = nil }
         .offset(y: dragY)
+        .animation(PolarisTheme.Motion.promote(theme.reduceMotion), value: dragY == 0)
         .zIndex(dragY == 0 ? 0 : 1)
+        .onChange(of: dragY != 0) { _, active in model.dragging = active }
         .gesture(reorderGesture, including: model.expanded && !renaming ? .all : .subviews)
         .contextMenu { if !renaming { RowMenuItems(task: task, index: index) } }
         .accessibilityElement(children: .combine)
@@ -135,15 +138,10 @@ struct TaskRow: View {
 
     private var reorderGesture: some Gesture {
         DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                model.dragging = true
-                dragY = value.translation.height
-            }
+            .updating($dragY) { value, state, _ in state = value.translation.height }
             .onEnded { value in
                 let step = PolarisTheme.Metrics.rowHeight + PolarisTheme.Space.s
                 let target = min(max(index + Int((value.translation.height / step).rounded()), 0), model.today.now.count - 1)
-                withAnimation(PolarisTheme.Motion.promote(theme.reduceMotion)) { dragY = 0 }
-                model.dragging = false
                 model.reorder(task.id, to: target)
             }
     }
