@@ -26,6 +26,8 @@ Polarisは「今日いちばん大事なこと」を1つ、常に最前面の小
 - `later`: 日をまたいで残る「あとで」リスト（上限なし、UIでは件数のみ表示、展開時だけ中身が見える）
 - `banner`: MCPから送られた一時メッセージ（`text`, `from`, `expiresAt`）。1件のみ保持
 - `history`: 過去の `Day`（直近90日）
+- `modes`: 設定で編集したモード一覧（任意。キーが無ければ既定の3種）。先頭が既定モードで、既定と今日のモードは消せない
+- `lastOverflow`: 直近に `now` から溢れた記録（`taskID`, `title`, `source`, `at`）。`source` はタスクを作った側ではなく、その操作をした側（`user` | `mcp:<client名>`）
 - 状態ファイル: `~/.polaris/state.json`（`schemaVersion`, `revision`）。環境変数 `POLARIS_HOME` で上書き可
 - 書き込みは一時ファイル→rename の原子的置換。変更のたびに `revision` を+1。アプリとMCPは同じファイルを共有し、アプリはファイル監視で即時反映する。変更操作は必ず「最新を読み直す→適用→書く」で行い、ファイルロック（`flock`）で直列化する
 
@@ -51,6 +53,7 @@ Polarisは「今日いちばん大事なこと」を1つ、常に最前面の小
 
 - stdio の MCP サーバー。依存ライブラリなしの手書き JSON-RPC 2.0（行区切り）。Swift 実行ファイル、PolarisCore を共有
 - `.app` 内の `Contents/MacOS/polaris-mcp` に同梱。`claude mcp add polaris -- /Applications/Polaris.app/Contents/MacOS/polaris-mcp`
+- 別に置いた古い `polaris-mcp` は `modes` などの新しいキーを知らず、書き込むと消してしまう。必ず `.app` に同梱したものを登録する
 - ツール:
   - `polaris_get_today` — 今日の状態（モード・北極星・now・done・later件数・banner）
   - `polaris_set_north_star(text)`
