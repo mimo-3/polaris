@@ -270,6 +270,8 @@ struct StarQueueLine: View {
         let hasToday = model.today.star != nil
         HStack(spacing: PolarisTheme.Space.s) {
             if let next = queue.first {
+                // 押すと控えと振り返りの窓を開く。並べ替えや過去を見るのはそこで行う。
+                Button { (NSApp.delegate as? AppCoordinator)?.showStars() } label: {
                 HStack(spacing: 6) {
                     MetaText(text: hasToday ? Copy.starNextLabel : Copy.starQueueHead).fixedSize()
                     Text(next.text)
@@ -278,9 +280,30 @@ struct StarQueueLine: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if queue.count > 1 { MetaText(text: Copy.starMore(queue.count - 1)).fixedSize() }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.ink2)
+                        .accessibilityHidden(true)
                 }
+                .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
                 .layoutPriority(1)
                 .accessibilityElement(children: .combine)
+                .accessibilityHint(Copy.starsOpenHint)
+            } else {
+                Button { (NSApp.delegate as? AppCoordinator)?.showStars() } label: {
+                    HStack(spacing: 6) {
+                        MetaText(text: Copy.starsQueueEmpty)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(theme.ink2)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(Copy.starsOpenHint)
             }
             Spacer(minLength: 0)
             Button(hasToday ? Copy.starAchieved : Copy.starUseNext) { model.performStarQueueAction() }
