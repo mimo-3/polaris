@@ -76,6 +76,40 @@ enum Copy {
     static func toNow(_ remaining: Int) -> String { "いまに入れる（残り\(remaining)枠）" }
     static let toLaterFull = "あとでに入れる（いまは3件で満杯）"
     static let quickHints = ["⏎ 保存する", "⌥⏎ あとでに入れる", "esc 閉じる"]
+    /// 北極星の欄にいるときのヒント。⌥⏎ はタスクと同じく「今日には出さずに取っておく」。
+    static let quickHintsStar = ["⏎ 保存する", "⌥⏎ 控えに入れる", "esc 閉じる"]
+
+    // 北極星の控えと振り返り
+    static let starAchieved = "達成した"
+    static let starDrop = "手放す"
+    static let starUseNext = "これにする"
+    static let starNextLabel = "次に控える"
+    static let starQueueHead = "控えから出す"
+    static func starMore(_ n: Int) -> String { "ほか\(n)" }
+    static let starAchievedTail = "」を達成。"
+    static let starDroppedTail = "」を手放した。"
+    static func starEndedSpoken(_ title: String, next: String?, achieved: Bool) -> String {
+        let head = achieved ? "\(title)を達成した。" : "\(title)を手放した。"
+        return next.map { head + "次の北極星は\($0)" } ?? head + "控えはもうない"
+    }
+    static let starsMenu = "控えている北極星"
+    static let starsQueueEmpty = "控えはない"
+    static let starsQueueFull = "控えは\(TextRules.starQueueMax)件まで。振り返りの窓で減らしてから入れて。"
+    static let starEndMenu = "北極星を達成して次へ"
+    static let starDropMenu = "北極星を手放して次へ"
+    static let starsWindowMenu = "北極星の控えと振り返り…"
+    static let starsWindowTitle = "北極星"
+    static let starsToday = "今日"
+    static let starsQueue = "控え"
+    static let starsLog = "これまで"
+    static let starsLogEmpty = "終えた北極星はまだない。達成するとここに残る。"
+    static let starsQueuePlaceholder = "控えに入れる北極星を1文で"
+    static let starsQueueAdd = "控えに入れる"
+    static let starsMoveUp = "上へ"
+    static let starsReopen = "控えに戻す"
+    static let starOutcomeAchieved = "達成"
+    static let starOutcomeDropped = "手放した"
+    static let starsQueueHelp = "今日の北極星を達成すると、いちばん上が付箋に上がる。"
 
     // メニューバー
     static let hideNote = "付箋を隠す"
