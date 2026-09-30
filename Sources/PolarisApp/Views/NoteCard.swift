@@ -150,6 +150,7 @@ struct NorthStarView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityHint(Copy.northStarEmptyHint)
             } else {
                 let text = model.today.northStar
                 Text(WordWrap.japanese(text))

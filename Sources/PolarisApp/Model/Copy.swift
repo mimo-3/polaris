@@ -7,6 +7,7 @@ enum Copy {
     static let northStarEmpty = "北極星を設定する"
     /// 押せない場所（メニューバー・寄り道表示・控えの窓）で使う。
     static func modeMenu(_ label: String) -> String { "モード、\(label)。押すと切り替える" }
+    static let northStarEmptyHint = "押すと今日の北極星を書ける"
     static let panelToggle = "付箋の開閉"
     static let northStarNone = "北極星は未設定"
     static let startMorning = "朝の支度を始める"
