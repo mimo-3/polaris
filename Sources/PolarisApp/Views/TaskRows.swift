@@ -41,6 +41,11 @@ struct TaskRow: View {
         .contextMenu { if !renaming { RowMenuItems(task: task, index: index) } }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(isLead ? "本命、\(task.title)" : "いまの\(index + 1)件目、\(task.title)")
+        .accessibilityValue(completing ? "完了" : "")
+        // 点のボタンは combine で行に吸われるので、行そのものの既定操作（AXPress）を完了にする。
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(Copy.completeHint)
+        .accessibilityAction { model.complete(task.id) }
         .accessibilityAction(named: "完了にする") { model.complete(task.id) }
         .accessibilityAction(named: "あとでに送る") { model.sendLater(task.id) }
         .modifier(LeadAction(isLead: isLead) { model.makeLead(task.id) })

@@ -90,6 +90,11 @@ enum Copy {
     static let settings = "設定…"
     static let quit = "Polarisを終了"
     static let clickThroughIcon = "クリック透過中。⌃⌥T で戻す"
+    static let expandAction = "展開する"
+    static let collapseAction = "たたむ"
+    static let expandedValue = "展開中"
+    static let collapsedValue = "たたんでいる"
+    static let completeHint = "押すと完了にする"
     static func modeChanged(_ label: String) -> String { "\(label)に切り替えた" }
 
     // MARK: 設定
