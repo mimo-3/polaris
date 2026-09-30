@@ -4,6 +4,7 @@ import Foundation
 public enum TextRules {
     public static let titleMax = 200
     public static let northStarMax = 200
+    public static let starQueueMax = 20
     public static let noteMax = 500
     public static let bannerMax = 280
     public static let clientMax = 64
