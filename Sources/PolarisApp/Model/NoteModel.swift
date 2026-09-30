@@ -157,7 +157,7 @@ final class NoteModel {
         }
         if let swapping, !next.later.contains(where: { $0.id == swapping }) { self.swapping = nil }
         if case .overflow(let id, _, _) = transient, !next.later.contains(where: { $0.id == id }) { clearTransient() }
-        if !firstLoad && !dayChanged { announceExternalChanges(from: previous, to: next) }
+        announceExternalChanges(from: previous, to: next, settling: firstLoad || dayChanged)
         if dayChanged {
             pinned = false; laterOpen = false; editing = nil
             onDayChanged()
@@ -168,11 +168,13 @@ final class NoteModel {
     }
 
     /// 付箋の外（MCP）で起きた4件目と、banner に隠れたモード切り替えを声の行で知らせる。
-    /// 起動直後の読み込みでは呼ばない（古い出来事を今のことのように出さない）。
-    private func announceExternalChanges(from previous: AppState, to next: AppState) {
-        if let event = next.lastOverflow, event != previous.lastOverflow, event.source.hasPrefix("mcp:"),
-           abs(Date().timeIntervalSince(event.at)) < Self.overflowFreshness, swapping == nil,
-           next.later.contains(where: { $0.id == event.taskID }) {
+    /// 起動直後の読み込みと日付が替わった直後（settling）は出さない。古い出来事を今のことのように出さない。
+    private func announceExternalChanges(from previous: AppState, to next: AppState, settling: Bool) {
+        guard !settling else { return }
+        var undoShowing = false
+        if case .undo = transient { undoShowing = true }
+        if let event = OverflowNotice.event(from: previous, to: next, now: Date(), settling: settling,
+                                            busy: swapping != nil || undoShowing) {
             show(.overflow(taskID: event.taskID, title: event.title, client: Copy.clientName(event.source)))
             return
         }
@@ -181,9 +183,6 @@ final class NoteModel {
             show(.modeChanged(next.today.mode))
         }
     }
-
-    /// MCP のあふれを知らせる猶予。これより古い記録は別の起動や過去の出来事とみなす。
-    static let overflowFreshness: TimeInterval = 30
 
     /// ストア操作をメインスレッド外で行い、終わったら最新状態を反映する。
     /// `always` は成功でも失敗でも最後に1回呼ぶ（後始末用）。
