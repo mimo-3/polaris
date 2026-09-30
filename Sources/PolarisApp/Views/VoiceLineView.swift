@@ -30,7 +30,7 @@ struct VoiceLineView: View {
 
     @ViewBuilder private var content: some View {
         switch model.voice {
-        case .mode: ModeLine(showCounts: model.expanded || model.isAllDone)
+        case .mode: ModeLine(showCounts: model.expanded || model.isAllDone, switchable: !compact)
         case .detour(let detour): detourLine(detour)
         case .transient(let t): transientLine(t)
         case .banner(let banner):
@@ -255,8 +255,8 @@ struct VoiceLineView: View {
     }
 }
 
-/// 付箋のクリック開閉は onTapGesture で、AX には出ない。見えている行のうち、押すと開閉する
-/// モード表示の行を「ボタン」として出し、既定の操作（AXPress）と名前付きの操作で開閉できるようにする。
+/// 付箋のクリック開閉は onTapGesture で、AX には出ない。モード表示の行の右側（モード名の切り替えメニューを除いた部分）を
+/// 「ボタン」として出し、既定の操作（AXPress）と名前付きの操作で開閉できるようにする。
 private struct ExpandAccessibility: ViewModifier {
     var enabled: Bool
     @Environment(NoteModel.self) private var model
@@ -265,6 +265,7 @@ private struct ExpandAccessibility: ViewModifier {
         if enabled {
             content
                 .accessibilityElement(children: .combine)
+                .accessibilityLabel(Copy.panelToggle)
                 .accessibilityAddTraits(.isButton)
                 .accessibilityValue(model.expanded ? Copy.expandedValue : Copy.collapsedValue)
                 .accessibilityHint(model.expanded ? Copy.collapseHint : Copy.expandHint)
@@ -279,13 +280,41 @@ private struct ExpandAccessibility: ViewModifier {
 }
 
 /// 通常の声の行: モードの glyph ＋ 名前。展開中と全部完了の日は右に「済 n」、透過中は ⊘。
+/// モードの名前を押すと、その場でモードを切り替えられる。
 struct ModeLine: View {
     var showCounts: Bool
     var closed = false
+    var switchable = true
     @Environment(NoteModel.self) private var model
     @Environment(\.polaris) private var theme
 
     var body: some View {
+        HStack(spacing: 6) {
+            // ImageRenderer は Menu を描かないので、スナップショットでは見た目だけ出す。
+            if switchable && !closed && !theme.snapshot {
+                modeMenu
+            } else {
+                modeLabel(chevron: switchable && !closed)
+            }
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                if showCounts && !model.today.done.isEmpty && !closed {
+                    MetaText(text: Copy.done(model.today.done.count))
+                        .contentTransition(.numericText())
+                }
+                if model.clickThrough {
+                    Image(systemName: "cursorarrow.slash")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(model.optionPeek ? theme.ink : theme.ink2)
+                        .accessibilityLabel(Copy.clickThroughIcon)
+                }
+            }
+            .modifier(ExpandAccessibility(enabled: !closed && (!model.clickThrough || model.optionPeek)))
+        }
+        .frame(height: 16)
+    }
+
+    private func modeLabel(chevron: Bool) -> some View {
         HStack(spacing: 6) {
             Image(systemName: model.mode.symbol)
                 .font(.system(size: 12, weight: .medium))
@@ -293,19 +322,34 @@ struct ModeLine: View {
                 .frame(width: 16)
                 .accessibilityHidden(true)
             MetaText(text: closed ? Copy.dayClosed(model.mode.label) : model.mode.label)
-            Spacer(minLength: 0)
-            if showCounts && !model.today.done.isEmpty && !closed {
-                MetaText(text: Copy.done(model.today.done.count))
-                    .contentTransition(.numericText())
-            }
-            if model.clickThrough {
-                Image(systemName: "cursorarrow.slash")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(model.optionPeek ? theme.ink : theme.ink2)
-                    .accessibilityLabel(Copy.clickThroughIcon)
+            if chevron {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.ink2)
+                    .accessibilityHidden(true)
             }
         }
-        .frame(height: 16)
-        .modifier(ExpandAccessibility(enabled: !closed && (!model.clickThrough || model.optionPeek)))
+    }
+
+    private var modeMenu: some View {
+        Menu {
+            ForEach(model.modes) { mode in
+                Button { model.setMode(mode.id) } label: {
+                    if mode.id == model.mode.id {
+                        Label(mode.label, systemImage: "checkmark")
+                    } else {
+                        Text(mode.label)
+                    }
+                }
+            }
+        } label: {
+            modeLabel(chevron: true).contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(model.clickThrough && !model.optionPeek)
+        .accessibilityLabel(Copy.modeMenu(model.mode.label))
     }
 }
