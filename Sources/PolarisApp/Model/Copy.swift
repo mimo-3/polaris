@@ -90,6 +90,30 @@ enum Copy {
     static let settings = "設定…"
     static let quit = "Polarisを終了"
     static let clickThroughIcon = "クリック透過中。⌃⌥T で戻す"
+    static let expandAction = "展開する"
+    static let collapseAction = "たたむ"
+    static let expandedValue = "展開中"
+    static let collapsedValue = "たたんでいる"
+    static let completeHint = "押すと完了にする"
+    static let expandHint = "押すと付箋を展開する"
+    static let collapseHint = "押すと付箋をたたむ"
+    static func modeChanged(_ label: String) -> String { "\(label)に切り替えた" }
+
+    // MARK: 設定
+    static let modesSection = "モード"
+    static let addMode = "モードを追加"
+    static let newModeLabel = "新しいモード"
+    static let modeName = "名前"
+    static let defaultBadge = "既定"
+    static let todayBadge = "今日"
+    static let avoidAppsTitle = "寄り道とみなすアプリ"
+    static let pickApps = "アプリを選ぶ…"
+    static let removeApp = "外す"
+    static func removeAppLabel(_ app: String) -> String { "\(app)を寄り道から外す" }
+    static let deleteMode = "このモードを削除"
+    static let cannotDeleteDefault = "既定のモードは削除できない。日付が替わるとこのモードに戻る。"
+    static let cannotDeleteCurrent = "今日使っているモードは削除できない。別のモードに替えてから消して。"
+    static let pickAppsPrompt = "寄り道に加える"
 
     /// MCP クライアント名を人が読む名前にする。知らない名前はそのまま出す。
     static func clientName(_ raw: String) -> String {

@@ -85,11 +85,11 @@ public struct MCPServer: Sendable {
                     "laterCount": s.later.count, "banner": try s.banner.map { try json($0) } ?? NSNull(), "revision": s.revision]
         case "polaris_set_north_star": return try json(store.setNorthStar(a["text"] as! String).today)
         case "polaris_set_mode": return try json(store.setMode(a["mode_id"] as! String).today.mode)
-        case "polaris_list_modes": return try json(Mode.defaults)
+        case "polaris_list_modes": return try json(store.read().availableModes)
         case "polaris_add_task":
             return try json(store.addTask(title: a["title"] as! String, to: TaskDestination(rawValue: a["to"] as? String ?? "later")!, position: integer(a["position"]), source: "mcp:\(clientName)"))
         case "polaris_complete_task": return try json(store.completeTask(id: try uuid(a)).today)
-        case "polaris_move_task": return try json(store.moveTask(id: try uuid(a), to: TaskDestination(rawValue: a["to"] as! String)!, position: integer(a["position"])))
+        case "polaris_move_task": return try json(store.moveTask(id: try uuid(a), to: TaskDestination(rawValue: a["to"] as! String)!, position: integer(a["position"]), actor: "mcp:\(clientName)"))
         case "polaris_remove_task": return try json(store.removeTask(id: try uuid(a)).today)
         case "polaris_rename_task": return try json(store.renameTask(id: try uuid(a), title: a["title"] as! String).today)
         case "polaris_list_later": return try json(store.read().later)
@@ -155,8 +155,8 @@ public struct MCPServer: Sendable {
         return [
             tool("polaris_get_today", "今日のモード、北極星、now、done、later件数、bannerを取得する。"),
             tool("polaris_set_north_star", "北極星を1文で設定する。空文字で消去。", ["text": ["type": "string", "maxLength": TextRules.northStarMax]], ["text"]),
-            tool("polaris_set_mode", "既定モードを選ぶ。", ["mode_id": ["type": "string", "enum": Mode.defaults.map(\.id)]], ["mode_id"]),
-            tool("polaris_list_modes", "モード一覧を取得する。"),
+            tool("polaris_set_mode", "今日のモードを選ぶ。mode_idはpolaris_list_modesのid。", ["mode_id": ["type": "string", "minLength": 1]], ["mode_id"]),
+            tool("polaris_list_modes", "設定で編集したモード一覧を取得する。先頭が既定モード。"),
             tool("polaris_add_task", "タスクを追加する。nowは最大3件。満杯ならlaterへ送りoverflowedで返す。", ["title": title, "to": destination, "position": position], ["title"]),
             tool("polaris_complete_task", "タスクを完了し本命なら次を繰り上げる。", ["id": id], ["id"]),
             tool("polaris_move_task", "指定タスクを移動する。doneからの移動は未完了に戻す。", ["id": id, "to": destination, "position": position], ["id", "to"]),

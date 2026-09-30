@@ -199,6 +199,17 @@ enum SnapshotRenderer {
                            banner: Banner(text: "PR #128 のレビューが通った。マージは任せて、本命のレビュー指摘に戻ろう",
                                           from: "claude-code", expiresAt: Date().addingTimeInterval(3600)))
         }),
+        // banner 表示中にモードを替えた直後。apply を通して、知らせが出る経路ごと確かめる。
+        Scenario(name: "banner-mode-changed", build: { _ in card() }, configure: { m in
+            var next = m.state
+            next.today.mode = Fixtures.mode("reading")
+            next.revision += 1
+            m.apply(next)
+        }, state: { _ in
+            Fixtures.state(northStar: Fixtures.shortStar,
+                           banner: Banner(text: "PR終わったよ、本命に戻ろう", from: "claude-code",
+                                          expiresAt: Date().addingTimeInterval(3600)))
+        }),
         Scenario(name: "clickthrough", build: { m in
             AnyView(NoteCard().opacity(m.theme.clickThroughAlpha))
         }, configure: { m in m.clickThrough = true }),
@@ -208,6 +219,14 @@ enum SnapshotRenderer {
         Scenario(name: "overflow-mcp", build: { _ in card() }, configure: { m in
             m.transient = .overflow(taskID: Fixtures.later[1].id, title: "オンボーディング資料の図を差し替える",
                                     client: "Claude Code")
+        }),
+        // MCP が4件目を足して溢れた記録を受け取ったとき（lastOverflow 経由）。
+        Scenario(name: "overflow-mcp-live", build: { _ in card() }, configure: { m in
+            var next = m.state
+            next.lastOverflow = OverflowEvent(taskID: Fixtures.later[1].id, title: Fixtures.later[1].title,
+                                              source: "mcp:claude-code", at: Date())
+            next.revision += 1
+            m.apply(next)
         }),
         Scenario(name: "overflow-swap", build: { _ in card() }, configure: { m in
             m.transient = .overflow(taskID: Fixtures.later[0].id, title: "議事録を整える", client: nil)
@@ -230,6 +249,18 @@ enum SnapshotRenderer {
                  state: { _ in Fixtures.state(now: [], done: Fixtures.done) }),
         Scenario(name: "settings", build: { _ in
             AnyView(SettingsView(conflicts: [.toggleClickThrough]).frame(width: 440).background(PolarisTheme.Palette.surface))
+        }),
+        Scenario(name: "settings-reading", build: { _ in
+            AnyView(SettingsView(conflicts: [], initialModeID: "reading").frame(width: 440).background(PolarisTheme.Palette.surface))
+        }),
+        Scenario(name: "settings-custom", build: { _ in
+            AnyView(SettingsView(conflicts: [], initialModeID: "mode-deep").frame(width: 440).background(PolarisTheme.Palette.surface))
+        }, state: { _ in
+            var state = Fixtures.state(mode: "reading")
+            let deep = Mode(id: "mode-deep", label: "集中の日", symbol: "circle", tint: "slate",
+                            avoidApps: ["com.tinyspeck.slackmacgap"])
+            state.modes = [Fixtures.mode("work"), Fixtures.mode("reading"), deep]
+            return state
         }),
         Scenario(name: "quick-edit", build: { m in
             AnyView(QuickEditView(state: m.state, focus: .add, close: {}))

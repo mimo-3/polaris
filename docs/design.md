@@ -212,6 +212,7 @@ t=320    ○→●  光の点が matchedGeometry で次の行へ移る。文字�
 
 - 北極星より上には出さない。背景も塗らない。バッジ・色・音も付けない
 - × は20pt、当たり判定24×24。`expiresAt` が来るか × を押したら、モード表示に戻す
+- banner が出ているあいだにモードが替わったら（メニュー・支度・MCP のどれでも）、「取り消し・4件目」と同じ段で「{glyph} {mode label}に切り替えた」を4秒出してから banner に戻す。glyph と位置はモード表示と同じにし、文字だけ ink にする。モードを常設する2つ目の場所は作らない（付箋を3段から増やさない、声の行を1か所に保つため）。モード表示が見えているときは行そのものが替わるので出さない
 
 ### 2-8. クリック透過中
 
@@ -232,6 +233,7 @@ t=320    ○→●  光の点が matchedGeometry で次の行へ移る。文字�
 │                                    │ 6秒出す（ホバー中は消さない）
 ```
 
+- MCP から入って溢れたものは、状態の `lastOverflow`（source が `mcp:` で始まり、30秒以内のもの）を見て同じ知らせを出す。付箋での操作は操作した側で出すので二重にしない。起動直後の読み込みでは出さない
 - 展開中なら「あとで 7 → 8」の数字を `numericText` で切り替えるだけにする。いまの3行は動かさない
 - 「入れ替える…」を押すと展開を固定し、2・3件目の右に「入れ替える」（button ink2、ホバーで ink）を出す。本命とは入れ替えない（本命と替えたいときは行メニューの「本命にする」）。声の行は「入れ替える行を選ぶ ［やめる］」にする（⎋ でもやめられる）。選んだ項目があとでの先頭へ、追加した項目がいまの末尾へ入る。自動では入れ替えない
 
@@ -441,6 +443,7 @@ static func northStarFont(size: CGFloat = 20) -> Font {
 | 完了 | 「{title}」を完了にした。 ［取り消す］ |
 | 4件目 | 「{title}」はあとでへ ［入れ替える…］ |
 | 4件目（MCP） | 「{title}」はあとでへ（{client} から） ［入れ替える…］ |
+| モード切り替え（banner 中） | {mode label}に切り替えた |
 | 入れ替え選択 | 入れ替える行を選ぶ ［やめる］ / 行の右: 入れ替える |
 | 寄り道（仕事・読書） | {mode label}。戻る？ ［{App}を隠す］［5分だけ見る］（収まらなければ［5分］） |
 | 寄り道（休む日） | 休む日。離れる？ ［{App}を隠す］［5分だけ見る］（収まらなければ［5分］） |
@@ -496,7 +499,9 @@ Polarisを終了         ⌘Q
 
 ### 設定
 
-タブは作らず1画面にする。項目は「モード」「ショートカット」「ログイン時に開く」「MCP の登録」。ボタンは「モードを追加」「アプリを選ぶ…」「コマンドをコピー」。ショートカットが衝突したときは「⌃⌥N はほかのアプリが使っている。別のキーを選んで。」と出す。
+タブは作らず1画面にする。項目は「モード」「ショートカット」「ログイン時に開く」「MCP の登録」。ボタンは「モードを追加」「アプリを選ぶ…」「コマンドをコピー」。
+
+モードは一覧（行 h32、選択中は 1.5pt ink の枠、右に meta で「既定 · 今日」）の下に、選んだ1件の編集欄だけを出す。編集欄は「名前」（20文字まで、空にしたら元に戻す）、「寄り道とみなすアプリ」（アプリ名＋［外す］、空なら「寄り道は知らせない」）と［アプリを選ぶ…］（/Applications から .app を複数選べる）、［このモードを削除］。既定のモードと今日のモードは削除ボタンを無効にし、その下に理由を ink2 で出す（「既定のモードは削除できない。日付が替わるとこのモードに戻る。」「今日使っているモードは削除できない。別のモードに替えてから消して。」）。ショートカットが衝突したときは「⌃⌥N はほかのアプリが使っている。別のキーを選んで。」と出す。
 
 ---
 
@@ -551,10 +556,11 @@ Carbon `RegisterEventHotKey` で登録する。設定から変えられる。
 
 | 要素 | ラベル / 値 | 特性・操作 |
 |---|---|---|
-| パネル | 「Polaris。北極星、{northStar}。本命、{title}。{mode}」 | `children: .contain` |
+| パネル | 「Polaris。北極星、{northStar}。本命、{title}。{mode}」／値「展開中」「たたんでいる」 | `children: .contain`（SwiftUI はこのコンテナを AX 要素として出さないので、開閉はここに付けない）。窓の subrole は floatingWindow、窓の custom action に「展開する」「たたむ」 |
+| モード表示の行 | 「{mode}」／値「展開中」「たたんでいる」 | ボタン。既定操作（AXPress）で開閉、ヒント「押すと付箋を展開する／たたむ」、操作「展開する」「たたむ」。クリックでも開閉する行なので見た目は変えない |
 | 北極星 | 「北極星、{text}」／空:「北極星はまだない」 | `.isHeader`、操作「編集」 |
-| 本命 | 「本命、{title}」 | 操作「完了にする」「あとでに送る」 |
-| 2・3件目 | 「いまの{n}件目、{title}」 | 操作「本命にする」「完了にする」「あとでに送る」 |
+| 本命 | 「本命、{title}」 | ボタン。既定操作（AXPress）で完了、ヒント「押すと完了にする」。操作「完了にする」「あとでに送る」 |
+| 2・3件目 | 「いまの{n}件目、{title}」 | ボタン。既定操作で完了。操作「本命にする」「完了にする」「あとでに送る」 |
 | 点・リング | 「{title}を完了にする」 | ボタン。完了後は `accessibilityValue("完了")` |
 | あとで | 「あとで、{n}件」 | ボタン、展開状態を持つ |
 | モード glyph | 読ませない | `accessibilityHidden(true)`（名前は文字で読む） |
@@ -609,4 +615,4 @@ Carbon `RegisterEventHotKey` で登録する。設定から変えられる。
 
 ## 付記: `--render-snapshots` の対象
 
-`collapsed`, `collapsed-2line`, `expanded`, `later-open`, `empty-northstar`, `empty-now`, `morning-1`, `morning-2`, `morning-3`, `completing`（繰り上がりの中間フレーム）, `detour`, `detour-hidden`, `banner`, `banner-expanded`, `clickthrough`, `overflow-to-later`, `overflow-mcp`, `overflow-swap`, `undo`, `undo-long`, `all-done`, `all-done-expanded`, `day-closed`, `quick-edit`、確認用に `empty-northstar-with-now`, `collapsed-dwc`（▸）, `later-empty`, `later-keyboard`, `detour-keyboard`, `morning-2-filled`, `settings`, `menubar-icon(-hidden)`。それぞれ light / dark（主要なものは increase-contrast も）と、モード3種で書き出す。行メニュー（⋯）はネイティブの NSMenu で ImageRenderer では描けないので対象外。
+`collapsed`, `collapsed-2line`, `expanded`, `later-open`, `empty-northstar`, `empty-now`, `morning-1`, `morning-2`, `morning-3`, `completing`（繰り上がりの中間フレーム）, `detour`, `detour-hidden`, `banner`, `banner-expanded`, `banner-mode-changed`, `clickthrough`, `overflow-to-later`, `overflow-mcp`, `overflow-mcp-live`, `overflow-swap`, `undo`, `undo-long`, `all-done`, `all-done-expanded`, `day-closed`, `quick-edit`、確認用に `empty-northstar-with-now`, `collapsed-dwc`（▸）, `later-empty`, `later-keyboard`, `detour-keyboard`, `morning-2-filled`, `settings`, `settings-reading`, `settings-custom`, `menubar-icon(-hidden)`。それぞれ light / dark（主要なものは increase-contrast も）と、モード3種で書き出す。行メニュー（⋯）はネイティブの NSMenu で ImageRenderer では描けないので対象外。

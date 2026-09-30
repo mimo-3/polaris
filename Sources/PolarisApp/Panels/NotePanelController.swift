@@ -37,6 +37,17 @@ final class NotePanelController {
         hosting.onEnter = { [weak model] in model?.pointerEntered() }
         hosting.onExit = { [weak model] in model?.pointerExited() }
         hosting.onMove = { [weak model] in model?.pointer = $0 }
+        // 声の行が banner などでモード表示の行が無いときも開閉できるよう、窓にも同じ操作を付ける。
+        panel.setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: Copy.expandAction) { [weak model] in
+                MainActor.assumeIsolated { model?.setExpanded(true) }
+                return true
+            },
+            NSAccessibilityCustomAction(name: Copy.collapseAction) { [weak model] in
+                MainActor.assumeIsolated { model?.setExpanded(false) }
+                return true
+            },
+        ])
         model.requestKey = { [weak self] in self?.makeKey() }
         model.resignKey = { [weak self] in self?.releaseKey() }
         restorePlacement()

@@ -75,6 +75,8 @@ final class NoteModel {
     // MARK: 派生値
     var today: Day { state.today }
     var mode: Mode { state.today.mode }
+    /// 設定で編集したモード一覧。先頭が既定モード。
+    var modes: [Mode] { state.availableModes }
     var lead: Item? { state.today.now.first }
     var expanded: Bool {
         guard !clickThrough || optionPeek else { return false }
@@ -139,6 +141,7 @@ final class NoteModel {
 
     func apply(_ next: AppState) {
         guard next != state else { return }
+        let previous = state
         let firstLoad = state.today.date.isEmpty && !next.today.date.isEmpty
         let dayChanged = next.today.date != state.today.date && !state.today.date.isEmpty
         let leadChanged = next.today.now.first?.id != state.today.now.first?.id
@@ -154,6 +157,7 @@ final class NoteModel {
         }
         if let swapping, !next.later.contains(where: { $0.id == swapping }) { self.swapping = nil }
         if case .overflow(let id, _, _) = transient, !next.later.contains(where: { $0.id == id }) { clearTransient() }
+        announceExternalChanges(from: previous, to: next, settling: firstLoad || dayChanged)
         if dayChanged {
             pinned = false; laterOpen = false; editing = nil
             onDayChanged()
@@ -161,6 +165,23 @@ final class NoteModel {
             onDayChanged()
         }
         onStateApplied()
+    }
+
+    /// 付箋の外（MCP）で起きた4件目と、banner に隠れたモード切り替えを声の行で知らせる。
+    /// 起動直後の読み込みと日付が替わった直後（settling）は出さない。古い出来事を今のことのように出さない。
+    private func announceExternalChanges(from previous: AppState, to next: AppState, settling: Bool) {
+        guard !settling else { return }
+        var undoShowing = false
+        if case .undo = transient { undoShowing = true }
+        if let event = OverflowNotice.event(from: previous, to: next, now: Date(), settling: settling,
+                                            busy: swapping != nil || undoShowing) {
+            show(.overflow(taskID: event.taskID, title: event.title, client: Copy.clientName(event.source)))
+            return
+        }
+        // モード表示が見えているなら行そのものが替わるので、知らせは要らない。
+        if next.today.mode.id != previous.today.mode.id, transient == nil, detour == nil, visibleBanner != nil {
+            show(.modeChanged(next.today.mode))
+        }
     }
 
     /// ストア操作をメインスレッド外で行い、終わったら最新状態を反映する。
@@ -199,6 +220,7 @@ final class NoteModel {
         case .undo(_, _, let title, let next):
             announce(next.map { "\(title)を完了にした。次の本命は\($0)" } ?? "\(title)を完了にした。", .medium)
         case .overflow(_, let title, _): announce(Copy.overflow(title), .medium)
+        case .modeChanged(let mode): announce(Copy.modeChanged(mode.label), .low)
         case .error(let message): announce(message, .high)
         }
     }
@@ -282,6 +304,17 @@ final class NoteModel {
             }
         } else {
             withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { pinned = true }
+        }
+    }
+
+    /// VoiceOver や自動操作から開閉する。ホバーで開いているだけでも「たたむ」で閉じられるようにする。
+    func setExpanded(_ open: Bool) {
+        guard !isDayClosed, !clickThrough || optionPeek, open != expanded else { return }
+        if open {
+            withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { pinned = true }
+        } else {
+            hoverTimer?.cancel()
+            unpinAll()
         }
     }
 

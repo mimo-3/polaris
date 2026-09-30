@@ -19,6 +19,10 @@ final class FloatingPanel: NSPanel {
         isReleasedWhenClosed = false
         animationBehavior = .none
         isMovable = false
+        // 枠なしのパネルは AX の subrole が unknown になり、VoiceOver のウインドウ一覧や自動操作から辿りにくい。
+        // フォーカスを奪わない浮いた窓であることを明示しておく（nonactivating でも AXPress は届く）。
+        setAccessibilitySubrole(.floatingWindow)
+        setAccessibilityLabel("Polaris")
     }
 
     override var canBecomeKey: Bool { keyable }

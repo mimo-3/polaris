@@ -62,7 +62,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(action(Copy.redoMorning) { $0.showMorning(key: true) })
 
         let modes = NSMenu()
-        for mode in Mode.defaults {
+        for mode in app.model.modes {
             let entry = action(mode.label) { $0.model.setMode(mode.id) }
             entry.state = mode.id == today.mode.id ? .on : .off
             modes.addItem(entry)

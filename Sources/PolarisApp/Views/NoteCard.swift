@@ -28,6 +28,8 @@ struct NoteCard: View {
         .onTapGesture { if !model.isDayClosed { model.togglePin() } }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(panelLabel)
+        // 開閉の AX 操作は、このコンテナではなくモード表示の行とパネルに付ける。
+        // SwiftUI は .contain のコンテナを AX の要素として出さず、ここに付けた操作は届かないため。
     }
 
     private var panelLabel: String {

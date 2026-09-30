@@ -84,8 +84,13 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             window.isReleasedWhenClosed = false
             settingsWindow = window
         }
-        let view = SettingsView(conflicts: HotKeyCenter.shared.conflicts).environment(\.polaris, model.theme)
-        settingsWindow?.contentView = NSHostingView(rootView: view)
+        let view = SettingsView(conflicts: HotKeyCenter.shared.conflicts)
+            .environment(model)
+            .environment(\.polaris, model.theme)
+        // モードの編集で高さが変わるので、窓の大きさは中身に合わせる。
+        let controller = NSHostingController(rootView: view)
+        controller.sizingOptions = .preferredContentSize
+        settingsWindow?.contentViewController = controller
         settingsWindow?.center()
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -149,7 +154,7 @@ struct BackgroundMenuItems: View {
             Button(Copy.hide15) { app.note.hide(for: 15) }
             Button(Copy.clickThrough) { app.note.setClickThrough(!app.model.clickThrough) }
             Menu(Copy.modeMenu) {
-                ForEach(Mode.defaults) { mode in Button(mode.label) { app.model.setMode(mode.id) } }
+                ForEach(app.model.modes) { mode in Button(mode.label) { app.model.setMode(mode.id) } }
             }
             Menu(Copy.cornerMenu) {
                 ForEach(Corner.menuOrder, id: \.self) { corner in Button(corner.label) { app.note.move(to: corner) } }

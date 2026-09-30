@@ -22,8 +22,45 @@ public struct PolarisStore: Sendable {
         return try transaction { $0.today.northStar = text }.state
     }
     @discardableResult public func setMode(_ id: String) throws -> State {
-        guard let mode = Mode.defaults.first(where: { $0.id == id }) else { throw PolarisError.unknownMode }
-        return try transaction { $0.today.mode = mode }.state
+        try transaction { state in
+            guard let mode = state.availableModes.first(where: { $0.id == id }) else { throw PolarisError.unknownMode }
+            state.today.mode = mode
+        }.state
+    }
+    /// 同じ id があれば置き換え、無ければ末尾に足す。今日のモードなら今日の分も合わせる。
+    @discardableResult public func upsertMode(_ mode: Mode) throws -> State {
+        var mode = mode
+        mode.label = try checkedModeLabel(mode.label)
+        guard !mode.id.isEmpty, mode.id.count <= TextRules.clientMax else { throw PolarisError.invalidInput("モードのidが不正です") }
+        mode.avoidApps = try checkedApps(mode.avoidApps)
+        return try transaction { state in
+            var modes = state.availableModes
+            if let i = modes.firstIndex(where: { $0.id == mode.id }) { modes[i] = mode } else { modes.append(mode) }
+            state.modes = modes
+            if state.today.mode.id == mode.id { state.today.mode = mode }
+        }.state
+    }
+    /// 名前だけを変える。寄り道のアプリは書き込む時点の最新のまま残す。
+    @discardableResult public func renameMode(id: String, label: String) throws -> State {
+        let label = try checkedModeLabel(label)
+        return try editMode(id: id) { $0.label = label }
+    }
+    /// 寄り道のアプリを足し引きする。同時に名前を変えられても消さないよう、最新の一覧に差分だけ当てる。
+    @discardableResult public func updateAvoidApps(id: String, add: [String] = [], remove: [String] = []) throws -> State {
+        let add = try checkedApps(add), remove = Set(remove.map(TextRules.clean))
+        return try editMode(id: id) { mode in
+            mode.avoidApps.removeAll { remove.contains($0) }
+            for app in add where !mode.avoidApps.contains(app) { mode.avoidApps.append(app) }
+        }
+    }
+    /// 既定モードと今日使っているモードは消せない。
+    @discardableResult public func removeMode(id: String) throws -> State {
+        guard id != Mode.defaultMode.id else { throw PolarisError.invalidInput("既定のモードは削除できません") }
+        return try transaction { state in
+            guard state.availableModes.contains(where: { $0.id == id }) else { throw PolarisError.unknownMode }
+            guard state.today.mode.id != id else { throw PolarisError.invalidInput("今日使っているモードは削除できません") }
+            state.modes = state.availableModes.filter { $0.id != id }
+        }.state
     }
     @discardableResult public func setNote(_ text: String?) throws -> State {
         let text = try text.map { try TextRules.checked($0, max: TextRules.noteMax, label: "メモ") }
@@ -31,10 +68,9 @@ public struct PolarisStore: Sendable {
     }
     public func addTask(title: String, to: TaskDestination = .later, position: Int? = nil, source: String = "user") throws -> Placement {
         let title = try checkedTitle(title)
-        guard source == "user" || (source.hasPrefix("mcp:") && source.count > 4 && source.count <= 4 + TextRules.clientMax
-                                   && TextRules.clean(source) == source) else { throw PolarisError.invalidInput("不正なsourceです") }
+        try checkActor(source)
         return try transaction { state in
-            try place(Task(title: title, createdAt: clock(), source: source), to: to, position: position, in: &state)
+            try place(Task(title: title, createdAt: clock(), source: source), to: to, position: position, actor: source, in: &state)
         }.value
     }
     @discardableResult public func completeTask(id: UUID) throws -> State {
@@ -43,11 +79,13 @@ public struct PolarisStore: Sendable {
             task.completedAt = clock(); state.today.done.append(task)
         }.state
     }
-    public func moveTask(id: UUID, to: TaskDestination, position: Int? = nil) throws -> Placement {
-        try transaction { state in
+    /// `actor` は操作した側（App は "user"、MCP は "mcp:<client>"）。溢れたときの記録の出所になる。
+    public func moveTask(id: UUID, to: TaskDestination, position: Int? = nil, actor: String = "user") throws -> Placement {
+        try checkActor(actor)
+        return try transaction { state in
             var task = try remove(id, from: &state, includeDone: true)
             task.completedAt = nil
-            return try place(task, to: to, position: position, in: &state)
+            return try place(task, to: to, position: position, actor: actor, in: &state)
         }.value
     }
     @discardableResult public func removeTask(id: UUID) throws -> State {
@@ -233,7 +271,8 @@ public struct PolarisStore: Sendable {
             }
             state.history.append(archived)
             state.later = state.today.now + state.later
-            state.today = Day(date: key)
+            state.today = Day(date: key, mode: state.defaultMode)
+            state.lastOverflow = nil
         }
         let cutoff = dateKey(calendar.date(byAdding: .day, value: -90, to: now) ?? now)
         state.history = Array(state.history.filter { $0.date >= cutoff }
@@ -251,10 +290,44 @@ public struct PolarisStore: Sendable {
         guard Set(active.map(\.id)).count == active.count,
               (state.today.now + state.later).allSatisfy({ $0.completedAt == nil }),
               state.today.done.allSatisfy({ $0.completedAt != nil }) else { throw PolarisError.invalidState("タスクのIDまたは完了状態が不正です") }
+        if let modes = state.modes {
+            guard Set(modes.map(\.id)).count == modes.count,
+                  modes.contains(where: { $0.id == Mode.defaultMode.id }) else { throw PolarisError.invalidState("モード一覧が不正です") }
+        }
     }
-    private func place(_ task: Task, to: TaskDestination, position: Int?, in state: inout State) throws -> Placement {
+    private func editMode(id: String, _ body: (inout Mode) -> Void) throws -> State {
+        try transaction { state in
+            var modes = state.availableModes
+            guard let i = modes.firstIndex(where: { $0.id == id }) else { throw PolarisError.unknownMode }
+            body(&modes[i])
+            state.modes = modes
+            if state.today.mode.id == id { state.today.mode = modes[i] }
+        }.state
+    }
+    private func checkedModeLabel(_ label: String) throws -> String {
+        let label = try TextRules.checked(label, max: TextRules.modeLabelMax, label: "モード名")
+        guard !label.isEmpty else { throw PolarisError.invalidInput("モード名を入れてください") }
+        return label
+    }
+    private func checkedApps(_ raw: [String]) throws -> [String] {
+        var apps: [String] = []
+        for value in raw {
+            let app = TextRules.clean(value)
+            guard !app.isEmpty, app.count <= TextRules.bundleIDMax else { throw PolarisError.invalidInput("アプリのIDが不正です") }
+            if !apps.contains(app) { apps.append(app) }
+        }
+        return apps
+    }
+    private func checkActor(_ actor: String) throws {
+        guard actor == "user" || (actor.hasPrefix("mcp:") && actor.count > 4 && actor.count <= 4 + TextRules.clientMax
+                                  && TextRules.clean(actor) == actor) else { throw PolarisError.invalidInput("不正なsourceです") }
+    }
+    private func place(_ task: Task, to: TaskDestination, position: Int?, actor: String, in state: inout State) throws -> Placement {
         guard position == nil || position! >= 0 else { throw PolarisError.invalidInput("positionは0以上です") }
         let overflow = to == .now && state.today.now.count >= 3
+        if overflow {
+            state.lastOverflow = OverflowEvent(taskID: task.id, title: task.title, source: actor, at: clock())
+        }
         let destination: TaskDestination = overflow ? .later : to
         if destination == .now {
             state.today.now.insert(task, at: min(position ?? state.today.now.count, state.today.now.count))

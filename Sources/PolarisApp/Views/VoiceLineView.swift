@@ -111,6 +111,20 @@ struct VoiceLineView: View {
                     }
                 }
             }
+        case .modeChanged(let mode):
+            // モード表示と同じ glyph と位置にして、「この行はモード」という読み方を崩さない。
+            HStack(spacing: 6) {
+                Image(systemName: mode.symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PolarisTheme.Palette.Mode.tint(mode.tint))
+                    .frame(width: 16)
+                    .accessibilityHidden(true)
+                MetaText(text: Copy.modeChanged(mode.label), color: theme.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .frame(height: 16)
         case .error(let message):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "exclamationmark.circle")
@@ -225,6 +239,29 @@ struct VoiceLineView: View {
     }
 }
 
+/// 付箋のクリック開閉は onTapGesture で、AX には出ない。見えている行のうち、押すと開閉する
+/// モード表示の行を「ボタン」として出し、既定の操作（AXPress）と名前付きの操作で開閉できるようにする。
+private struct ExpandAccessibility: ViewModifier {
+    var enabled: Bool
+    @Environment(NoteModel.self) private var model
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityValue(model.expanded ? Copy.expandedValue : Copy.collapsedValue)
+                .accessibilityHint(model.expanded ? Copy.collapseHint : Copy.expandHint)
+                .accessibilityAction { model.setExpanded(!model.expanded) }
+                .accessibilityAction(named: model.expanded ? Copy.collapseAction : Copy.expandAction) {
+                    model.setExpanded(!model.expanded)
+                }
+        } else {
+            content
+        }
+    }
+}
+
 /// 通常の声の行: モードの glyph ＋ 名前。展開中と全部完了の日は右に「済 n」、透過中は ⊘。
 struct ModeLine: View {
     var showCounts: Bool
@@ -253,5 +290,6 @@ struct ModeLine: View {
             }
         }
         .frame(height: 16)
+        .modifier(ExpandAccessibility(enabled: !closed && (!model.clickThrough || model.optionPeek)))
     }
 }

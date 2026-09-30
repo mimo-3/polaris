@@ -151,4 +151,24 @@ final class MCPServerTests {
         while let line = reader.next() { lines.append(line) }
         #expect(lines == [.text("ab"), .tooLong, .text("cd"), .text("ef")])
     }
+
+    @Test func testListAndSetModeUseEditedModes() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("polaris-backend-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        homes.append(directory)
+        let date = Date(timeIntervalSince1970: 1_780_272_000)
+        let store = PolarisStore(homeURL: directory, clock: { date })
+        _ = try store.upsertMode(Mode(id: "deep", label: "集中の日", symbol: "circle", tint: "slate"))
+        _ = try store.removeMode(id: "reading")
+        var subject = MCPServer(store: store)
+        _ = try response(&subject, ["jsonrpc": "2.0", "id": 0, "method": "initialize", "params": ["protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "test", "version": "1"]]])
+
+        let listed = try #require(try payload(call(&subject, "polaris_list_modes")) as? [[String: Any]])
+        #expect(listed.compactMap { $0["id"] as? String } == ["work", "rest", "deep"])
+        let set = try call(&subject, "polaris_set_mode", arguments: ["mode_id": "deep"])
+        #expect(set["isError"] as? Bool == false)
+        #expect(try store.read().today.mode.id == "deep")
+        let removed = try call(&subject, "polaris_set_mode", arguments: ["mode_id": "reading"])
+        #expect(removed["isError"] as? Bool == true)
+    }
 }

@@ -42,6 +42,108 @@ final class StoreTests {
         #expect(overflow.destination == .later)
     }
 
+    @Test func testOverflowingMCPAdditionRecordsTaskAndClock() throws {
+        let subject = store(at: try home(), date: epoch)
+        for title in ["一番", "二番", "三番"] { _ = try subject.addTask(title: title, to: .now) }
+
+        let placement = try subject.addTask(title: "四番", to: .now, source: "mcp:claude")
+
+        #expect(placement.overflowed)
+        #expect(try subject.read().lastOverflow == OverflowEvent(
+            taskID: placement.task.id, title: "四番", source: "mcp:claude", at: epoch
+        ))
+    }
+
+    @Test func testOrdinaryAdditionsLeaveLastOverflowNil() throws {
+        let subject = store(at: try home(), date: epoch)
+
+        _ = try subject.addTask(title: "今やる", to: .now, source: "mcp:claude")
+        _ = try subject.addTask(title: "後で", to: .later, source: "mcp:claude")
+
+        #expect(try subject.read().lastOverflow == nil)
+    }
+
+    @Test func testOrdinaryPlacementsPreservePreviousOverflow() throws {
+        let subject = store(at: try home(), date: epoch)
+        for title in ["一番", "二番", "三番"] { _ = try subject.addTask(title: title, to: .now) }
+        let overflow = try subject.addTask(title: "四番", to: .now, source: "mcp:claude")
+        let event = try #require(try subject.read().lastOverflow)
+
+        _ = try subject.addTask(title: "後で", to: .later)
+        #expect(try subject.read().lastOverflow == event)
+        let first = try #require(try subject.read().today.now.first)
+        _ = try subject.completeTask(id: first.id)
+        _ = try subject.moveTask(id: overflow.task.id, to: .now)
+
+        #expect(try subject.read().lastOverflow == event)
+    }
+
+    @Test func testOverflowingMoveReplacesEventUsingCurrentClock() throws {
+        let directory = try home()
+        let initial = store(at: directory, date: epoch)
+        for title in ["一番", "二番", "三番"] { _ = try initial.addTask(title: title, to: .now) }
+        _ = try initial.addTask(title: "最初のあふれ", to: .now, source: "mcp:claude")
+        let task = try initial.addTask(title: "移動する", to: .later, source: "mcp:codex").task
+        let movedAt = epoch.addingTimeInterval(60)
+        let subject = store(at: directory, date: movedAt)
+
+        let placement = try subject.moveTask(id: task.id, to: .now)
+
+        #expect(placement.overflowed)
+        // MCP が作ったタスクでも、動かしたのが付箋なら出所は user。
+        #expect(try subject.read().lastOverflow == OverflowEvent(
+            taskID: task.id, title: task.title, source: "user", at: movedAt
+        ))
+    }
+
+    @Test func testMCPMoveOfUserTaskRecordsMCPActor() throws {
+        let subject = store(at: try home(), date: epoch)
+        for title in ["一番", "二番", "三番"] { _ = try subject.addTask(title: title, to: .now) }
+        let task = try subject.addTask(title: "自分で書いた", to: .later).task
+
+        let placement = try subject.moveTask(id: task.id, to: .now, actor: "mcp:codex")
+
+        #expect(placement.overflowed)
+        #expect(try subject.read().lastOverflow?.source == "mcp:codex")
+        #expect(throws: PolarisError.self) { try subject.moveTask(id: task.id, to: .now, actor: "codex") }
+    }
+
+    @Test func testRolloverClearsLastOverflow() throws {
+        let directory = try home()
+        let previous = store(at: directory, date: epoch)
+        for title in ["一番", "二番", "三番", "四番"] { _ = try previous.addTask(title: title, to: .now) }
+        _ = try #require(try previous.read().lastOverflow)
+
+        let state = try store(at: directory, date: epoch.addingTimeInterval(86400)).read()
+
+        #expect(state.lastOverflow == nil)
+    }
+
+    @Test func testDecodingStateWithoutLastOverflowKeepsSchemaVersionOne() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "revision": 7,
+          "today": {
+            "date": "2026-06-01",
+            "mode": { "id": "work", "label": "仕事の日", "symbol": "briefcase", "tint": "slate", "avoidApps": [] },
+            "northStar": "以前の状態",
+            "now": [],
+            "done": []
+          },
+          "later": [],
+          "history": []
+        }
+        """
+
+        let state = try JSONDecoder().decode(State.self, from: Data(json.utf8))
+
+        #expect(state.lastOverflow == nil)
+        #expect(state.schemaVersion == 1)
+        #expect(state.revision == 7)
+        #expect(state.today.northStar == "以前の状態")
+    }
+
     @Test func testCompletingFocusPromotesNextAndPreservesCompletionTime() throws {
         let subject = store(at: try home(), date: epoch)
         let first = try subject.addTask(title: "本命", to: .now)
@@ -298,5 +400,126 @@ final class StoreTests {
         let backup = try #require(try subject.resetCorruptState())
         #expect(try Data(contentsOf: backup) == Data("{broken".utf8))
         #expect(try subject.read().today.northStar == "")
+    }
+
+    @Test func testModesDefaultToBuiltInsWhenKeyIsMissing() throws {
+        let subject = store(at: try home(), date: epoch)
+        let state = try subject.read()
+        #expect(state.modes == nil)
+        #expect(state.availableModes == Mode.defaults)
+        #expect(try subject.setMode("reading").today.mode.id == "reading")
+    }
+
+    @Test func testUpsertModeAddsRenamesAndCanBeSelected() throws {
+        let subject = store(at: try home(), date: epoch)
+        let added = try subject.upsertMode(Mode(id: "deep", label: "  集中の日 ", symbol: "circle", tint: "slate",
+                                                avoidApps: ["com.example.a", "com.example.a", " com.example.b "]))
+        let mode = try #require(added.availableModes.last)
+        #expect(added.availableModes.count == Mode.defaults.count + 1)
+        #expect(mode.label == "集中の日")
+        #expect(mode.avoidApps == ["com.example.a", "com.example.b"])
+
+        _ = try subject.setMode("deep")
+        var renamed = mode; renamed.label = "深く潜る日"; renamed.avoidApps = []
+        let state = try subject.upsertMode(renamed)
+        #expect(state.availableModes.last?.label == "深く潜る日")
+        #expect(state.today.mode == renamed)
+        #expect(state.availableModes.count == Mode.defaults.count + 1)
+    }
+
+    @Test func testUpsertModeRejectsEmptyOrLongLabels() throws {
+        let subject = store(at: try home(), date: epoch)
+        #expect(throws: PolarisError.self) { try subject.upsertMode(Mode(id: "x", label: " ", symbol: "circle", tint: "slate")) }
+        #expect(throws: PolarisError.self) {
+            try subject.upsertMode(Mode(id: "x", label: String(repeating: "あ", count: TextRules.modeLabelMax + 1), symbol: "circle", tint: "slate"))
+        }
+        #expect(throws: PolarisError.self) { try subject.upsertMode(Mode(id: "", label: "名前", symbol: "circle", tint: "slate")) }
+        #expect(try subject.read().modes == nil)
+    }
+
+    @Test func testRemoveModeProtectsDefaultAndCurrentMode() throws {
+        let subject = store(at: try home(), date: epoch)
+        #expect(throws: PolarisError.self) { try subject.removeMode(id: Mode.defaultMode.id) }
+        _ = try subject.setMode("rest")
+        #expect(throws: PolarisError.self) { try subject.removeMode(id: "rest") }
+        let state = try subject.removeMode(id: "reading")
+        #expect(state.availableModes.map(\.id) == ["work", "rest"])
+        #expect(throws: PolarisError.self) { try subject.setMode("reading") }
+        #expect(throws: PolarisError.self) { try subject.removeMode(id: "reading") }
+    }
+
+    @Test func testRolloverUsesEditedDefaultMode() throws {
+        let directory = try home()
+        var work = Mode.defaultMode; work.label = "しごと"; work.avoidApps = ["com.example.chat"]
+        _ = try store(at: directory, date: epoch).upsertMode(work)
+        _ = try store(at: directory, date: epoch).setMode("rest")
+
+        let next = try store(at: directory, date: epoch.addingTimeInterval(86400)).read()
+
+        #expect(next.today.mode == work)
+    }
+
+    @Test func testDecodingStateWithModesRoundTrips() throws {
+        let directory = try home()
+        let subject = store(at: directory, date: epoch)
+        _ = try subject.upsertMode(Mode(id: "deep", label: "集中の日", symbol: "circle", tint: "moss"))
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let state = try decoder.decode(State.self, from: Data(contentsOf: subject.stateURL))
+        #expect(state.modes?.map(\.id) == ["work", "reading", "rest", "deep"])
+    }
+
+    @Test func testFieldEditsApplyToLatestMode() throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setMode("reading")
+        _ = try subject.updateAvoidApps(id: "reading", add: ["com.example.new", " com.example.new "], remove: ["com.tinyspeck.slackmacgap"])
+        let state = try subject.renameMode(id: "reading", label: " 本の日 ")
+        let reading = try #require(state.availableModes.first { $0.id == "reading" })
+        #expect(reading.label == "本の日")
+        #expect(reading.avoidApps.last == "com.example.new")
+        #expect(!reading.avoidApps.contains("com.tinyspeck.slackmacgap"))
+        #expect(state.today.mode == reading)
+        #expect(throws: PolarisError.self) { try subject.renameMode(id: "missing", label: "x") }
+        #expect(throws: PolarisError.self) { try subject.renameMode(id: "reading", label: "  ") }
+    }
+
+    @Test func testConcurrentRenameAndAppEditsKeepBoth() throws {
+        let directory = try home()
+        let date = epoch
+        let fixedCalendar = calendar
+        let failures = Failures()
+        DispatchQueue.concurrentPerform(iterations: 40) { index in
+            do {
+                let writer = PolarisStore(homeURL: directory, calendar: fixedCalendar, clock: { date })
+                if index.isMultiple(of: 2) {
+                    _ = try writer.renameMode(id: "work", label: "名前\(index)")
+                } else {
+                    _ = try writer.updateAvoidApps(id: "work", add: ["com.example.\(index)"])
+                }
+            } catch { failures.record(error) }
+        }
+        let work = try #require(try store(at: directory, date: date).read().availableModes.first { $0.id == "work" })
+        #expect(failures.all.isEmpty)
+        #expect(work.label.hasPrefix("名前"))
+        #expect(Set(work.avoidApps) == Set(stride(from: 1, to: 40, by: 2).map { "com.example.\($0)" }))
+    }
+
+    @Test func testOverflowNoticeOnlyForFreshMCPEvents() throws {
+        let task = Task(title: "溢れた", source: "user")
+        let before = State(today: Day(date: "2026-06-01"), later: [task])
+        func after(_ source: String, at: Date) -> State {
+            var state = before
+            state.lastOverflow = OverflowEvent(taskID: task.id, title: task.title, source: source, at: at)
+            return state
+        }
+        let fresh = after("mcp:claude", at: epoch)
+        #expect(OverflowNotice.event(from: before, to: fresh, now: epoch.addingTimeInterval(10), settling: false, busy: false) == fresh.lastOverflow)
+        // 出所が付箋、古い、起動直後や日付替わり、入れ替えや取り消しの最中、同じ記録、もう「あとで」に無い
+        #expect(OverflowNotice.event(from: before, to: after("user", at: epoch), now: epoch, settling: false, busy: false) == nil)
+        #expect(OverflowNotice.event(from: before, to: fresh, now: epoch.addingTimeInterval(OverflowNotice.freshness), settling: false, busy: false) == nil)
+        #expect(OverflowNotice.event(from: before, to: fresh, now: epoch, settling: true, busy: false) == nil)
+        #expect(OverflowNotice.event(from: before, to: fresh, now: epoch, settling: false, busy: true) == nil)
+        #expect(OverflowNotice.event(from: fresh, to: fresh, now: epoch, settling: false, busy: false) == nil)
+        var moved = fresh; moved.later = []
+        #expect(OverflowNotice.event(from: before, to: moved, now: epoch, settling: false, busy: false) == nil)
     }
 }

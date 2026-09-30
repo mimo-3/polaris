@@ -53,6 +53,16 @@ public struct Banner: Codable, Sendable, Equatable {
     }
 }
 
+public struct OverflowEvent: Codable, Sendable, Equatable {
+    public var taskID: UUID
+    public var title: String
+    public var source: String
+    public var at: Date
+    public init(taskID: UUID, title: String, source: String, at: Date) {
+        self.taskID = taskID; self.title = title; self.source = source; self.at = at
+    }
+}
+
 public struct State: Codable, Sendable, Equatable {
     public var schemaVersion: Int
     public var revision: Int
@@ -60,9 +70,33 @@ public struct State: Codable, Sendable, Equatable {
     public var later: [Task]
     public var banner: Banner?
     public var history: [Day]
-    public init(schemaVersion: Int = 1, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil, history: [Day] = []) {
+    public var lastOverflow: OverflowEvent?
+    /// 設定で編集したモード一覧。キーが無い古い状態では nil で、`Mode.defaults` を使う。
+    public var modes: [Mode]?
+    public init(schemaVersion: Int = 1, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil, history: [Day] = [], lastOverflow: OverflowEvent? = nil, modes: [Mode]? = nil) {
         self.schemaVersion = schemaVersion; self.revision = revision; self.today = today
         self.later = later; self.banner = banner; self.history = history
+        self.lastOverflow = lastOverflow; self.modes = modes
+    }
+    /// 選べるモード。先頭が既定モード。
+    public var availableModes: [Mode] { modes ?? Mode.defaults }
+    /// 日付が替わったときに戻すモード。名前やアプリを編集していればそれを使う。
+    public var defaultMode: Mode { availableModes.first { $0.id == Mode.defaultMode.id } ?? Mode.defaultMode }
+}
+
+/// MCP で溢れたことを付箋で知らせるかの判定。アプリの状態に依らない部分だけをここに置いてテストする。
+public enum OverflowNotice {
+    /// これより古い記録は別の起動や過去の出来事とみなす。
+    public static let freshness: TimeInterval = 30
+
+    /// - Parameters:
+    ///   - settling: 起動直後の読み込みか日付が替わった直後。古い記録を今のことのように出さない。
+    ///   - busy: 入れ替えの途中や取り消しを出しているあいだ。上書きすると操作できなくなる。
+    public static func event(from previous: State, to next: State, now: Date, settling: Bool, busy: Bool) -> OverflowEvent? {
+        guard !settling, !busy, let event = next.lastOverflow, event != previous.lastOverflow,
+              event.source.hasPrefix("mcp:"), abs(now.timeIntervalSince(event.at)) < freshness,
+              next.later.contains(where: { $0.id == event.taskID }) else { return nil }
+        return event
     }
 }
 
