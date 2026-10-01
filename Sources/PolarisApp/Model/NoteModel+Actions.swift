@@ -51,16 +51,19 @@ extension NoteModel {
 
     /// 予約の日時になった控えを今日の北極星へ上げる。上がったら声の行と、付箋を前に出す合図で知らせる。
     func surfaceScheduledStars() {
-        guard state.queuedStars.contains(where: { ($0.startsAt ?? .distantFuture) <= Date() }) else { return }
-        run({ try $0.surfaceScheduledStar(now: Date()).surfaced }) { [weak self] star in
+        guard !surfacing, state.queuedStars.contains(where: { ($0.startsAt ?? .distantFuture) <= Date() }) else { return }
+        surfacing = true
+        run({ try $0.surfaceScheduledStar(now: Date()).surfaced }, then: { [weak self] star in
             guard let self, let star else { return }
             self.show(.starSurfaced(title: star.text))
             self.rippleToken += 1
             self.onSurface()
-        }
+        }, always: { [weak self] in self?.surfacing = false })
     }
     func removeQueuedNorthStar(_ id: UUID) { run { try $0.removeNorthStar(id: id) } }
-    func moveQueuedNorthStar(_ id: UUID, to position: Int) { run { try $0.moveNorthStar(id: id, position: position) } }
+    func moveQueuedNorthStar(_ id: UUID, to position: Int, always: @escaping @MainActor () -> Void = {}) {
+        run({ try $0.moveNorthStar(id: id, position: position) }, always: always)
+    }
     func reopenNorthStar(_ id: UUID) { run { try $0.reopenNorthStar(id: id) } }
 
     /// 控えの末尾に足す。今日の北極星は変えない。

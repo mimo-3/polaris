@@ -65,6 +65,8 @@ final class NoteModel {
     @ObservationIgnored var onCelebrate: () -> Void = {}
     /// 予約の北極星が上がったとき、隠していても付箋を出す。
     @ObservationIgnored var onSurface: () -> Void = {}
+    /// 予約の北極星を上げている途中。apply から何度も呼ばれても1回だけ書く。
+    @ObservationIgnored var surfacing = false
     @ObservationIgnored var announce: (String, NSAccessibilityPriorityLevel) -> Void = { _, _ in }
 
     @ObservationIgnored private var hoverTimer: _Concurrency.Task<Void, Never>?
@@ -160,6 +162,8 @@ final class NoteModel {
         let newBanner = next.banner != nil && next.banner != state.banner ? next.banner : nil
         let bannerChanged = next.banner != state.banner
         withAnimation(animation) { state = next }
+        // 起動・日付の替わり目・MCP の書き込みで、もう時刻の来た予約があれば待たずに上げる（朝の支度より先に）。
+        surfaceScheduledStars()
         if bannerChanged { scheduleBannerExpiry() }
         if let newBanner { announce("\(newBanner.text)。\(Copy.from(Copy.clientName(newBanner.from)))", .low) }
         if loadFailed {
@@ -309,6 +313,8 @@ final class NoteModel {
     func collapseIfLeft() {
         guard expanded, editing == nil, keyboardIndex == nil, !dragging else { return }
         hoverTimer?.cancel()
+        // 入れ替えの途中なら、声の行の「入れ替える行を選ぶ」も一緒に下ろす。
+        cancelSwap()
         unpinAll()
         if isKey { resignKey() }
     }
