@@ -91,7 +91,32 @@ public struct MCPServer: Sendable {
             return ["active": try s.today.star.map { try json($0) } ?? NSNull(),
                     "queue": try json(s.queuedStars), "pastCount": s.pastStars.count]
         case "polaris_add_north_star":
-            return try json(store.addNorthStar(text: a["text"] as! String, position: integer(a["position"])))
+            return try json(store.addNorthStar(text: a["text"] as! String, position: integer(a["position"]),
+                                              dueDate: a["dueDate"] as? String, startsAt: try optionalDate(a["startsAt"])))
+        case "polaris_update_north_star":
+            let id = try uuid(a)
+            let dueDate: String?? = a.keys.contains("dueDate")
+                ? .some(try optionalString(a["dueDate"], label: "dueDate")) : .none
+            let startsAt: Date?? = a.keys.contains("startsAt")
+                ? .some(try optionalDate(a["startsAt"])) : .none
+            let text: String? = try {
+                guard a.keys.contains("text") else { return nil }
+                guard let text = a["text"] as? String else { throw PolarisError.invalidInput("textは文字列です") }
+                return text
+            }()
+            // startsAt は控えだけ。先に確かめてから他の変更を書く。
+            if startsAt != nil {
+                let s = try store.read()
+                if s.today.star?.id == id { throw PolarisError.northStarNotQueued }
+                if !s.queuedStars.contains(where: { $0.id == id }) { throw PolarisError.northStarNotFound }
+            }
+            if let text { _ = try store.renameNorthStar(id: id, text: text) }
+            if case .some(let value) = dueDate { _ = try store.setNorthStarDue(id: id, dueDate: value) }
+            if case .some(let value) = startsAt { _ = try store.setNorthStarStart(id: id, startsAt: value) }
+            let s = try store.read()
+            if let star = s.today.star, star.id == id { return try json(star) }
+            if let star = s.queuedStars.first(where: { $0.id == id }) { return try json(star) }
+            throw PolarisError.northStarNotFound
         case "polaris_complete_north_star":
             let outcome = (a["outcome"] as? String).flatMap(NorthStarOutcome.init(rawValue:)) ?? .achieved
             let result = try store.completeNorthStar(outcome: outcome)
@@ -103,7 +128,26 @@ public struct MCPServer: Sendable {
         case "polaris_set_mode": return try json(store.setMode(a["mode_id"] as! String).today.mode)
         case "polaris_list_modes": return try json(store.read().availableModes)
         case "polaris_add_task":
-            return try json(store.addTask(title: a["title"] as! String, to: TaskDestination(rawValue: a["to"] as? String ?? "later")!, position: integer(a["position"]), source: "mcp:\(clientName)"))
+            return try json(store.addTask(title: a["title"] as! String,
+                                          to: TaskDestination(rawValue: a["to"] as? String ?? "later")!,
+                                          position: integer(a["position"]), source: "mcp:\(clientName)",
+                                          dueDate: a["dueDate"] as? String))
+        case "polaris_update_task":
+            let id = try uuid(a)
+            if a.keys.contains("title") {
+                guard let title = a["title"] as? String else { throw PolarisError.invalidInput("titleは文字列です") }
+                _ = try store.renameTask(id: id, title: title)
+            }
+            if a.keys.contains("dueDate") {
+                _ = try store.setTaskDue(id: id, dueDate: try optionalString(a["dueDate"], label: "dueDate"))
+            }
+            let s = try store.read()
+            if let task = s.today.now.first(where: { $0.id == id })
+                ?? s.later.first(where: { $0.id == id })
+                ?? s.today.done.first(where: { $0.id == id }) {
+                return try json(task)
+            }
+            throw PolarisError.taskNotFound
         case "polaris_complete_task": return try json(store.completeTask(id: try uuid(a)).today)
         case "polaris_move_task": return try json(store.moveTask(id: try uuid(a), to: TaskDestination(rawValue: a["to"] as! String)!, position: integer(a["position"]), actor: "mcp:\(clientName)"))
         case "polaris_remove_task": return try json(store.removeTask(id: try uuid(a)).today)
@@ -124,19 +168,44 @@ public struct MCPServer: Sendable {
               n.doubleValue >= 0, n.doubleValue < Double(Int.max) else { return nil }
         return n.intValue
     }
+    /// キーがある前提。null なら nil、文字列ならその値。それ以外はエラー。
+    private func optionalString(_ value: Any?, label: String) throws -> String? {
+        if value == nil || value is NSNull { return nil }
+        guard let text = value as? String else { throw PolarisError.invalidInput("\(label)は文字列かnullです") }
+        return text
+    }
+    /// ISO 8601（タイムゾーン付き）。null / 省略は nil。
+    private func optionalDate(_ value: Any?) throws -> Date? {
+        if value == nil || value is NSNull { return nil }
+        guard let text = value as? String else { throw PolarisError.invalidInput("startsAtはISO 8601です") }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let date = formatter.date(from: text) else { throw PolarisError.invalidInput("startsAtはISO 8601です") }
+        return date
+    }
     private func validate(name: String, arguments: [String: Any]) throws {
         guard let definition = Self.definitions.first(where: { $0["name"] as? String == name }),
               let schema = definition["inputSchema"] as? [String: Any], let properties = schema["properties"] as? [String: [String: Any]] else { throw PolarisError.invalidInput("未知のツール: \(name)") }
         for required in schema["required"] as? [String] ?? [] where arguments[required] == nil { throw PolarisError.invalidInput("\(required)が必要です") }
         for (key, value) in arguments {
             guard let property = properties[key] else { throw PolarisError.invalidInput("未知の引数: \(key)") }
-            let type = property["type"] as? String
-            if type == "string" && !(value is String) { throw PolarisError.invalidInput("\(key)は文字列です") }
+            let types: [String]
+            if let list = property["type"] as? [String] { types = list }
+            else if let single = property["type"] as? String { types = [single] }
+            else { types = [] }
+            if value is NSNull {
+                guard types.contains("null") else { throw PolarisError.invalidInput("\(key)はnullにできません") }
+                continue
+            }
+            let primary = types.first { $0 != "null" }
+            if primary == "string" && !(value is String) { throw PolarisError.invalidInput("\(key)は文字列です") }
             if let max = property["maxLength"] as? Int, let text = value as? String, text.count > max {
                 throw PolarisError.invalidInput("\(key)は\(max)文字以内です")
             }
-            if type == "integer" && integer(value) == nil { throw PolarisError.invalidInput("\(key)は0以上の整数です") }
-            if type == "number" {
+            if primary == "integer" && integer(value) == nil { throw PolarisError.invalidInput("\(key)は0以上の整数です") }
+            if primary == "number" {
                 guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else { throw PolarisError.invalidInput("\(key)は数値です") }
             }
             if let options = property["enum"] as? [String], !options.contains(value as? String ?? "") { throw PolarisError.invalidInput("\(key)の値が不正です") }
@@ -167,6 +236,10 @@ public struct MCPServer: Sendable {
         let position: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。now満杯ならlater末尾。"]
         let starText: [String: Any] = ["type": "string", "maxLength": TextRules.northStarMax]
         let starPosition: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。"]
+        let dueDate: [String: Any] = ["type": "string", "description": "この日までに終える期限。ローカル暦日のyyyy-MM-dd。"]
+        let dueDateOrNull: [String: Any] = ["type": ["string", "null"], "description": "この日までに終える期限。ローカル暦日のyyyy-MM-dd。nullで消す。"]
+        let startsAt: [String: Any] = ["type": "string", "description": "控えが自動で今日の北極星に上がる日時。ISO 8601（タイムゾーン付き）。省略時は手動。"]
+        let startsAtOrNull: [String: Any] = ["type": ["string", "null"], "description": "控えが自動で今日の北極星に上がる日時。ISO 8601（タイムゾーン付き）。nullで消す（手動に戻す）。"]
         func tool(_ name: String, _ description: String, _ properties: [String: [String: Any]] = [:], _ required: [String] = []) -> [String: Any] {
             ["name": name, "description": description + caution, "inputSchema": ["type": "object", "properties": properties, "required": required, "additionalProperties": false]]
         }
@@ -174,16 +247,22 @@ public struct MCPServer: Sendable {
             tool("polaris_get_today", "今日のモード、北極星、now、done、later件数、bannerを取得する。"),
             tool("polaris_set_north_star", "今日の北極星の文面を設定する。空文字なら控えの先頭へ戻す。", ["text": starText], ["text"]),
             tool("polaris_list_north_stars", "今日の北極星、控え、終わった件数を取得する。"),
-            tool("polaris_add_north_star", "北極星を控えに追加する。最大20件。", ["text": starText.merging(["minLength": 1]) { $1 }, "position": starPosition], ["text"]),
-            tool("polaris_complete_north_star", "今日の北極星を終え、控えの先頭があれば今日にする。",
+            tool("polaris_add_north_star", "北極星を控えに追加する。最大20件。dueDateはその日までの期限。startsAtを付けるとその日時に自動で今日の北極星へ上がる予約になる。",
+                 ["text": starText.merging(["minLength": 1]) { $1 }, "position": starPosition, "dueDate": dueDate, "startsAt": startsAt], ["text"]),
+            tool("polaris_update_north_star", "北極星の文面・期限・予約を更新する。キーが無ければ据え置き、dueDate/startsAtがnullなら消す。startsAtは控えだけに付けられる。",
+                 ["id": id, "text": starText.merging(["minLength": 1]) { $1 }, "dueDate": dueDateOrNull, "startsAt": startsAtOrNull], ["id"]),
+            tool("polaris_complete_north_star", "今日の北極星を終え、控えのうち予約なしまたは開始時刻を過ぎた最初の星を今日にする。未来予約の星は飛ばす。",
                  ["outcome": ["type": "string", "enum": ["achieved", "dropped"], "default": "achieved"]]),
-            tool("polaris_switch_north_star", "控えの北極星を今日にする。元の今日は控えの先頭へ。", ["id": id], ["id"]),
+            tool("polaris_switch_north_star", "控えの北極星を今日にする。元の今日は控えの先頭へ。予約（startsAt）は消える。", ["id": id], ["id"]),
             tool("polaris_remove_north_star", "控えから北極星を削除する。ログには残さない。", ["id": id], ["id"]),
             tool("polaris_get_north_star_log", "終わった北極星を新しい順に取得する。",
                  ["limit": ["type": "integer", "minimum": 1, "maximum": 500, "default": 30]]),
             tool("polaris_set_mode", "今日のモードを選ぶ。mode_idはpolaris_list_modesのid。", ["mode_id": ["type": "string", "minLength": 1]], ["mode_id"]),
             tool("polaris_list_modes", "設定で編集したモード一覧を取得する。先頭が既定モード。"),
-            tool("polaris_add_task", "タスクを追加する。nowは最大3件。満杯ならlaterへ送りoverflowedで返す。", ["title": title, "to": destination, "position": position], ["title"]),
+            tool("polaris_add_task", "タスクを追加する。nowは最大3件。満杯ならlaterへ送りoverflowedで返す。dueDateはその日までの期限。",
+                 ["title": title, "to": destination, "position": position, "dueDate": dueDate], ["title"]),
+            tool("polaris_update_task", "タスクの名前・期限を更新する。キーが無ければ据え置き、dueDateがnullなら消す。",
+                 ["id": id, "title": title, "dueDate": dueDateOrNull], ["id"]),
             tool("polaris_complete_task", "タスクを完了し本命なら次を繰り上げる。", ["id": id], ["id"]),
             tool("polaris_move_task", "指定タスクを移動する。doneからの移動は未完了に戻す。", ["id": id, "to": destination, "position": position], ["id", "to"]),
             tool("polaris_remove_task", "指定タスクを削除する。", ["id": id], ["id"]),

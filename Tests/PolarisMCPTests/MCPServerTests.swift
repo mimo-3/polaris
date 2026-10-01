@@ -51,8 +51,8 @@ final class MCPServerTests {
         let list = try #require(listed["result"] as? [String: Any])
         let tools = try #require(list["tools"] as? [[String: Any]])
         let names = Set(tools.compactMap { $0["name"] as? String })
-        #expect(names == Set(["polaris_get_today", "polaris_set_north_star", "polaris_list_north_stars", "polaris_add_north_star", "polaris_complete_north_star", "polaris_switch_north_star", "polaris_remove_north_star", "polaris_get_north_star_log", "polaris_set_mode", "polaris_list_modes", "polaris_add_task", "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_rename_task", "polaris_list_later", "polaris_nudge", "polaris_get_history"]))
-        #expect(tools.count == 18)
+        #expect(names == Set(["polaris_get_today", "polaris_set_north_star", "polaris_list_north_stars", "polaris_add_north_star", "polaris_update_north_star", "polaris_complete_north_star", "polaris_switch_north_star", "polaris_remove_north_star", "polaris_get_north_star_log", "polaris_set_mode", "polaris_list_modes", "polaris_add_task", "polaris_update_task", "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_rename_task", "polaris_list_later", "polaris_nudge", "polaris_get_history"]))
+        #expect(tools.count == 20)
         for tool in tools {
             let schema = try #require(tool["inputSchema"] as? [String: Any])
             #expect(schema["type"] as? String == "object")
@@ -205,5 +205,45 @@ final class MCPServerTests {
 
         let removed = try call(&subject, "polaris_remove_north_star", arguments: ["id": queuedID])
         #expect(removed["isError"] as? Bool == false)
+    }
+
+    @Test func testUpdateNorthStarAndTaskClearFieldsWithNull() throws {
+        var subject = try initializedServer()
+        let added = try #require(try payload(call(&subject, "polaris_add_north_star", arguments: [
+            "text": "予約の星",
+            "dueDate": "2026-06-15",
+            "startsAt": "2026-06-01T12:00:00Z"
+        ])) as? [String: Any])
+        let starID = try #require(added["id"] as? String)
+        #expect(added["dueDate"] as? String == "2026-06-15")
+        #expect(added["startsAt"] as? String != nil)
+
+        let updated = try #require(try payload(call(&subject, "polaris_update_north_star", arguments: [
+            "id": starID,
+            "text": "更新した星",
+            "dueDate": NSNull(),
+            "startsAt": NSNull()
+        ])) as? [String: Any])
+        #expect(updated["text"] as? String == "更新した星")
+        #expect(updated["dueDate"] == nil)
+        #expect(updated["startsAt"] == nil)
+
+        let task = try #require(try payload(call(&subject, "polaris_add_task", arguments: [
+            "title": "期限つき", "dueDate": "2026-06-20"
+        ])) as? [String: Any])
+        let taskObj = try #require(task["task"] as? [String: Any])
+        let taskID = try #require(taskObj["id"] as? String)
+        #expect(taskObj["dueDate"] as? String == "2026-06-20")
+
+        let cleared = try #require(try payload(call(&subject, "polaris_update_task", arguments: [
+            "id": taskID, "dueDate": NSNull()
+        ])) as? [String: Any])
+        #expect(cleared["dueDate"] == nil)
+        #expect(cleared["title"] as? String == "期限つき")
+
+        let renamed = try #require(try payload(call(&subject, "polaris_update_task", arguments: [
+            "id": taskID, "title": "名前だけ"
+        ])) as? [String: Any])
+        #expect(renamed["title"] as? String == "名前だけ")
     }
 }
