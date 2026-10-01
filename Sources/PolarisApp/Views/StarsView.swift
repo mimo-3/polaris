@@ -27,10 +27,20 @@ struct StarsView: View {
         }
         .frame(width: Self.width)
         .background(PolarisTheme.Palette.surface)
-        .onChange(of: model.state.queuedStars.map(\.id)) { _, _ in
-            order = nil
-            draggingID = nil
+        .onChange(of: model.state.queuedStars.map(\.id)) { _, _ in resetDrag() }
+        .onDisappear { resetDrag() }
+        // ⎋ や窓の外で離したドラッグは、落とした合図が来ない。ボタンが離れていたら手元の並びを捨てる。
+        .task(id: draggingID) {
+            while draggingID != nil {
+                try? await _Concurrency.Task.sleep(for: .milliseconds(300))
+                if NSEvent.pressedMouseButtons == 0 { resetDrag() }
+            }
         }
+    }
+
+    private func resetDrag() {
+        order = nil
+        draggingID = nil
     }
 
     private var content: some View {
@@ -152,7 +162,8 @@ struct StarsView: View {
         }, delegate: StarDropDelegate(target: star.id, draggingID: $draggingID, order: $order,
                                       queue: model.state.queuedStars.map(\.id),
                                       reduceMotion: theme.reduceMotion) { id, position in
-            model.moveQueuedNorthStar(id, to: position)
+            // 保存に失敗しても手元の並びを残さない。成功したときは新しい並びが先に届いている。
+            model.moveQueuedNorthStar(id, to: position) { order = nil }
         }))
         .accessibilityElement(children: .contain)
         .accessibilityHint(Copy.starsEditHint)
@@ -385,6 +396,8 @@ struct DateField: View {
     var components: DatePickerComponents
     var onChange: (Date) -> Void
     @Environment(\.polaris) private var theme
+    /// 保存が返ってくるまでのあいだ、入力した値に戻らないよう手元で持つ。
+    @State private var editing: Date?
 
     var body: some View {
         if theme.snapshot {
@@ -392,10 +405,12 @@ struct DateField: View {
                      ? date.formatted(.dateTime.year().month().day().hour().minute())
                      : date.formatted(.dateTime.year().month().day()), color: theme.ink)
         } else {
-            DatePicker("", selection: Binding(get: { date }, set: onChange), displayedComponents: components)
+            DatePicker("", selection: Binding(get: { editing ?? date }, set: { editing = $0; onChange($0) }),
+                       displayedComponents: components)
                 .datePickerStyle(.field)
                 .labelsHidden()
                 .fixedSize()
+                .onChange(of: date) { _, _ in editing = nil }
         }
     }
 }
