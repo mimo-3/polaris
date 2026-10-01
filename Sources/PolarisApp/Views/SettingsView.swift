@@ -4,11 +4,12 @@ import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 設定。タブは作らず1画面。
+/// 設定。タブは作らず1画面を縦にスクロールする。まとまりごとに白い面（GroupCard）に載せる。
 struct SettingsView: View {
     var conflicts: Set<HotKeyCenter.Action>
     /// 最初に選んでおくモード。nil なら今日のモード。
     var initialModeID: String? = nil
+    @Environment(NoteModel.self) private var model
     @Environment(\.polaris) private var theme
     @State var openAtLogin = SMAppService.mainApp.status == .enabled
     @State var copied = false
@@ -21,60 +22,118 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: S.xxl) {
-            section(Copy.modesSection) {
-                ModeSettings(selectedID: initialModeID)
-            }
-            section("ショートカット") {
-                VStack(alignment: .leading, spacing: S.s) {
-                    ForEach(HotKeyCenter.Action.allCases, id: \.rawValue) { action in
-                        HStack {
-                            Text(action.title).font(PolarisTheme.Typography.task).foregroundStyle(theme.ink)
-                            Spacer()
-                            MetaText(text: action.defaultBinding.label, color: theme.ink)
-                        }
-                        if conflicts.contains(action) {
-                            Text("\(action.defaultBinding.label) はほかのアプリが使っている。別のキーを選んで。")
-                                .font(PolarisTheme.Typography.voice)
-                                .foregroundStyle(PolarisTheme.Palette.danger)
-                        }
-                    }
-                }
-            }
-            section("ログイン時に開く") {
-                Toggle("Mac にログインしたら Polaris を開く", isOn: $openAtLogin)
-                    .toggleStyle(PolarisSwitchStyle())
-                    .font(PolarisTheme.Typography.task)
-                    .onChange(of: openAtLogin) { _, on in
-                        do { on ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
-                        catch { openAtLogin = SMAppService.mainApp.status == .enabled }
-                    }
-            }
-            section("MCP の登録") {
-                VStack(alignment: .leading, spacing: S.s) {
-                    Text(mcpCommand)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(theme.ink)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button(copied ? "コピーした" : "コマンドをコピー") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(mcpCommand, forType: .string)
-                        copied = true
-                    }
-                    .buttonStyle(SmallButtonStyle(outlined: true))
-                }
+        // ImageRenderer は ScrollView の中身を描かないので、スナップショットでは素の並びにする。
+        Group {
+            if theme.snapshot {
+                sections
+            } else {
+                ScrollView { sections }.scrollIndicators(.automatic)
             }
         }
-        .padding(S.xxl)
-        .frame(width: 440, alignment: .leading)
+        .frame(width: Self.width)
         .background(PolarisTheme.Palette.surface)
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: S.m) {
-            Text(title).font(PolarisTheme.Typography.button).foregroundStyle(theme.ink)
-            content()
+    static let width: CGFloat = 480
+
+    private var sections: some View {
+        VStack(alignment: .leading, spacing: S.xxl) {
+            display
+            GroupCard(title: Copy.modesSection) {
+                ModeSettings(selectedID: initialModeID).padding(.vertical, S.m)
+            }
+            shortcuts
+            GroupCard(title: Copy.settingsStartup) {
+                CardRow(title: Copy.settingsOpenAtLogin) {
+                    Toggle(isOn: $openAtLogin) { EmptyView() }
+                        .toggleStyle(PolarisSwitchStyle())
+                        .accessibilityLabel(Copy.settingsOpenAtLogin)
+                        .onChange(of: openAtLogin) { _, on in
+                            do { on ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
+                            catch { openAtLogin = SMAppService.mainApp.status == .enabled }
+                        }
+                }
+            }
+            mcp
+        }
+        .padding(S.xxl)
+    }
+
+    // MARK: 表示
+
+    private var display: some View {
+        @Bindable var model = model
+        return GroupCard(title: Copy.settingsDisplay) {
+            CardRow(title: Copy.settingsOpacity, detail: Copy.settingsOpacityDetail) {
+                HStack(spacing: S.s) {
+                    Slider(value: $model.noteOpacity, in: 0.4...1, step: 0.05)
+                        .controlSize(.small)
+                        .frame(width: 140)
+                        .accessibilityLabel(Copy.settingsOpacity)
+                        .accessibilityValue("\(Int((model.noteOpacity * 100).rounded()))%")
+                    MetaText(text: "\(Int((model.noteOpacity * 100).rounded()))%", color: theme.ink)
+                        .monospacedDigit()
+                        .frame(width: 36, alignment: .trailing)
+                }
+            }
+            Hairline()
+            CardRow(title: Copy.settingsCelebrate, detail: Copy.settingsCelebrateDetail) {
+                Toggle(isOn: $model.celebrates) { EmptyView() }
+                    .toggleStyle(PolarisSwitchStyle())
+                    .accessibilityLabel(Copy.settingsCelebrate)
+            }
+            Hairline()
+            CardRow(title: Copy.settingsSound) {
+                Toggle(isOn: $model.celebrationSound) { EmptyView() }
+                    .toggleStyle(PolarisSwitchStyle())
+                    .accessibilityLabel(Copy.settingsSound)
+            }
+            .disabled(!model.celebrates)
+            .opacity(model.celebrates ? 1 : 0.5)
+        }
+    }
+
+    // MARK: ショートカット
+
+    private var shortcuts: some View {
+        GroupCard(title: Copy.settingsShortcuts) {
+            ForEach(Array(HotKeyCenter.Action.allCases.enumerated()), id: \.element.rawValue) { index, action in
+                if index > 0 { Hairline() }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(action.title).font(PolarisTheme.Typography.task).foregroundStyle(theme.ink)
+                        Spacer()
+                        MetaText(text: action.defaultBinding.label, color: theme.ink)
+                    }
+                    if conflicts.contains(action) {
+                        Text(Copy.shortcutConflict(action.defaultBinding.label))
+                            .font(PolarisTheme.Typography.voice)
+                            .foregroundStyle(PolarisTheme.Palette.danger)
+                    }
+                }
+                .padding(.vertical, S.m)
+            }
+        }
+    }
+
+    // MARK: MCP
+
+    private var mcp: some View {
+        GroupCard(title: Copy.settingsMCP, footnote: Copy.settingsMCPDetail) {
+            VStack(alignment: .leading, spacing: S.m) {
+                Text(mcpCommand)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(theme.ink)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(copied ? Copy.settingsCopied : Copy.settingsCopy) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(mcpCommand, forType: .string)
+                    copied = true
+                }
+                .buttonStyle(SmallButtonStyle(outlined: true))
+            }
+            .padding(.vertical, S.m)
         }
     }
 }
