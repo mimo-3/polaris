@@ -41,13 +41,22 @@ struct NoteCard: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             NorthStarView()
+            // 期限は開いたときだけ。過ぎていたら閉じていても出す（見落とすと困るので）。
+            if let due = model.today.star?.dueDate.flatMap({ DueDates.starLabel($0, now: model.now) }),
+               model.expanded || due.overdue {
+                MetaText(text: due.text, color: due.overdue ? PolarisTheme.Palette.danger : nil)
+                    .padding(.top, S.xs)
+                    .accessibilityLabel("\(Copy.starsDue)、\(due.text)")
+            }
             if model.showsStarQueue {
                 Spacer().frame(height: S.s)
                 StarQueueLine()
                     .transition(.opacity.animation(PolarisTheme.Motion.expandContent(theme.reduceMotion)))
             }
-            Spacer().frame(height: S.m)
-            leadBlock
+            if hasLeadBlock {
+                Spacer().frame(height: S.m)
+                leadBlock
+            }
             if model.expanded {
                 expandedExtras
                     .transition(.opacity.animation(PolarisTheme.Motion.expandContent(theme.reduceMotion)))
@@ -62,15 +71,19 @@ struct NoteCard: View {
 
     // MARK: 2段目
 
+    /// 北極星だけあってタスクが空の日は、2段目を出さない。足すときは展開して「＋ タスクを追加」から。
+    private var hasLeadBlock: Bool {
+        let today = model.today
+        return !today.now.isEmpty || !today.done.isEmpty || today.northStar.isEmpty
+    }
+
     @ViewBuilder private var leadBlock: some View {
         let today = model.today
         if today.now.isEmpty {
             if !today.done.isEmpty {
                 AllDoneRow()
             } else if today.northStar.isEmpty {
-                LeadButton(title: Copy.startMorning, glyph: .start) { model.requestMorning() }
-            } else {
-                LeadButton(title: Copy.addLead, glyph: .add) { model.beginEditing(.add) }
+                LeadButton(title: Copy.startMorning) { model.requestMorning() }
             }
         } else {
             let rows = model.expanded ? Array(today.now.enumerated()) : [(0, today.now[0])]
@@ -161,7 +174,9 @@ struct NorthStarView: View {
                     .truncationMode(.tail)
                     .padding(.vertical, PolarisTheme.Typography.northStarPadding)
                     .fixedSize(horizontal: false, vertical: true)
-                    .onTapGesture(count: 2) { model.beginEditing(.northStar) }
+                    // 1回押すと北極星の窓（期限・予約・控え）を開き、2回で書き直す。
+                    .gesture(TapGesture(count: 2).onEnded { model.beginEditing(.northStar) }
+                        .exclusively(before: TapGesture().onEnded { (NSApp.delegate as? AppCoordinator)?.showStars() }))
                     .accessibilityLabel("北極星、\(text)")
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityAction(named: "編集") { model.beginEditing(.northStar) }
@@ -173,24 +188,16 @@ struct NorthStarView: View {
     }
 }
 
-/// 空のときの2段目のボタン。リングはタスク専用の記号なので使わない。
-/// 本命を追加する は ＋、朝の支度を始める は →。どちらも点と同じ x=0〜8 に置く。
+/// 北極星もタスクも空の日の2段目（朝の支度を始める）。リングはタスク専用の記号なので使わず、→ を点と同じ x=0〜8 に置く。
 private struct LeadButton: View {
-    enum Glyph { case add, start }
     var title: String
-    var glyph: Glyph
     var action: () -> Void
     @Environment(\.polaris) private var theme
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Group {
-                    switch glyph {
-                    case .add: Image(systemName: "plus").font(.system(size: 12, weight: .semibold))
-                    case .start: Image(systemName: "arrow.right").font(.system(size: 11, weight: .semibold))
-                    }
-                }
+                Image(systemName: "arrow.right").font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.ink)
                 .fixedSize()
                 .frame(width: PolarisTheme.Metrics.starDot, height: PolarisTheme.Metrics.rowHeight)
