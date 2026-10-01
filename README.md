@@ -49,7 +49,7 @@ python3 scripts/polaris-backend-smoke.py
 
 MCPは改行区切りJSON-RPC 2.0のstdioサーバーです。標準出力には応答だけを書きます。[MCPのinitializeとツール応答形式](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/schema.mdx)を利用し、2024-11-05、2025-03-26、2025-06-18をネゴシエートできます。
 
-18個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_list_north_stars`, `polaris_add_north_star`, `polaris_complete_north_star`, `polaris_switch_north_star`, `polaris_remove_north_star`, `polaris_get_north_star_log`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。タイトルと北極星は200字、nudge の text は280字までです。引数の詳細は `tools/list` のinputSchemaで取得できます。追加先はlaterが既定です。ユーザーの指示なしにnowを入れ替えないでください。
+20個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_list_north_stars`, `polaris_add_north_star`, `polaris_update_north_star`, `polaris_complete_north_star`, `polaris_switch_north_star`, `polaris_remove_north_star`, `polaris_get_north_star_log`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_update_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。タイトルと北極星は200字、nudge の text は280字までです。引数の詳細は `tools/list` のinputSchemaで取得できます。追加先はlaterが既定です。ユーザーの指示なしにnowを入れ替えないでください。
 
 ## UIからの購読
 
