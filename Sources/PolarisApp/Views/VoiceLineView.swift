@@ -1,3 +1,4 @@
+import AppKit
 import PolarisCore
 import SwiftUI
 
@@ -139,6 +140,23 @@ struct VoiceLineView: View {
                         Button(Copy.undo) { model.undoStarEnded() }
                             .buttonStyle(SmallButtonStyle(outlined: true, focused: focused(0)))
                     }
+                }
+            }
+        case .starSurfaced(let title):
+            // 1段目はもう替わっているので、合図だけを光の色の記号で添える。
+            oneLine {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PolarisTheme.Palette.star)
+                        .frame(width: 16)
+                        .accessibilityHidden(true)
+                    Text(Copy.starSurfaced(title))
+                        .font(PolarisTheme.Typography.voiceEmphasis)
+                        .foregroundStyle(theme.ink)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 0)
                 }
             }
         case .error(let message):
@@ -310,8 +328,25 @@ struct ModeLine: View {
                 }
             }
             .modifier(ExpandAccessibility(enabled: !closed && (!model.clickThrough || model.optionPeek)))
+            if switchable && !closed && model.expanded { settingsButton }
         }
         .frame(height: 16)
+    }
+
+    /// 右下の歯車。小さく置き、当たり判定だけ 24 に広げる（行の高さ16からは上下にはみ出す）。
+    private var settingsButton: some View {
+        Button { (NSApp.delegate as? AppCoordinator)?.showSettings() } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.ink2)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 24, height: 16)
+        .padding(.trailing, -4)
+        .help(Copy.settingsOpen)
+        .accessibilityLabel(Copy.settingsOpen)
     }
 
     private func modeLabel(chevron: Bool) -> some View {

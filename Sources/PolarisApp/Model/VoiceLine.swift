@@ -19,6 +19,8 @@ enum Transient: Equatable {
     case modeChanged(Mode)
     /// 北極星を終えた。付箋の1段目はもう次の北極星に替わっている。
     case starEnded(starID: UUID, title: String, next: String?, achieved: Bool)
+    /// 予約していた北極星が、決めた日時になって今日の北極星に上がった。
+    case starSurfaced(title: String)
     case error(String)
 
     var duration: TimeInterval {
@@ -26,6 +28,7 @@ enum Transient: Equatable {
         case .modeChanged: 4
         case .undo: 5
         case .overflow, .starEnded, .error: 6
+        case .starSurfaced: 10
         }
     }
 }
@@ -47,6 +50,7 @@ enum Voice: Equatable {
             case .overflow(let id, _, _): "overflow-\(id)"
             case .modeChanged(let mode): "mode-changed-\(mode.id)"
             case .starEnded(let id, _, _, _): "star-ended-\(id)"
+            case .starSurfaced(let title): "star-surfaced-\(title)"
             case .error(let m): "error-\(m)"
             }
         case .banner(let b): "banner-\(b.text)-\(b.expiresAt.timeIntervalSince1970)"
