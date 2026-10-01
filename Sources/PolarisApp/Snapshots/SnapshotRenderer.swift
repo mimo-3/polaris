@@ -248,13 +248,13 @@ enum SnapshotRenderer {
         Scenario(name: "day-closed", build: { _ in card() }, configure: { m in m.dayClosedDate = Fixtures.date },
                  state: { _ in Fixtures.state(now: [], done: Fixtures.done) }),
         Scenario(name: "settings", build: { _ in
-            AnyView(SettingsView(conflicts: [.toggleClickThrough]).frame(width: 440).background(PolarisTheme.Palette.surface))
+            AnyView(SettingsView(conflicts: [.toggleClickThrough]).background(PolarisTheme.Palette.surface))
         }),
         Scenario(name: "settings-reading", build: { _ in
-            AnyView(SettingsView(conflicts: [], initialModeID: "reading").frame(width: 440).background(PolarisTheme.Palette.surface))
+            AnyView(SettingsView(conflicts: [], initialModeID: "reading").background(PolarisTheme.Palette.surface))
         }),
         Scenario(name: "settings-custom", build: { _ in
-            AnyView(SettingsView(conflicts: [], initialModeID: "mode-deep").frame(width: 440).background(PolarisTheme.Palette.surface))
+            AnyView(SettingsView(conflicts: [], initialModeID: "mode-deep").background(PolarisTheme.Palette.surface))
         }, state: { _ in
             var state = Fixtures.state(mode: "reading")
             let deep = Mode(id: "mode-deep", label: "集中の日", symbol: "circle", tint: "slate",
@@ -274,5 +274,17 @@ enum SnapshotRenderer {
         }, state: { _ in Fixtures.withStars(Fixtures.state(northStar: Fixtures.queuedStars[0].text), promoted: true) }),
         Scenario(name: "stars-window", build: { _ in AnyView(StarsView()) },
                  state: { _ in Fixtures.withStars(Fixtures.state()) }),
+        Scenario(name: "celebration-early", variants: [light], build: { _ in celebration(at: 0.25) }),
+        Scenario(name: "celebration-mid", variants: [light], build: { _ in celebration(at: 0.8) }),
     ]
+
+    /// 達成の演出のある瞬間。付箋を置いた位置から弾ける。
+    private static func celebration(at t: Double) -> AnyView {
+        AnyView(ZStack(alignment: .top) {
+            Color(white: 0.85)
+            card().padding(.top, 360)
+            ConfettiBurst(origin: CGPoint(x: 380, y: 396), start: Date().addingTimeInterval(-t))
+        }
+        .frame(width: 760, height: 640))
+    }
 }
