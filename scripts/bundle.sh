@@ -30,7 +30,10 @@ if [[ -f Resources/Polaris.icns ]]; then
 fi
 identity="$(security find-identity -v -p codesigning | awk '/Developer ID Application:/ {print $2; exit}')"
 identity="${identity:--}"
-codesign --force --options runtime --sign "$identity" "$app/Contents/MacOS/polaris-mcp"
-codesign --force --options runtime --sign "$identity" "$app"
+# Notarization requires a secure timestamp, which ad-hoc signatures cannot carry.
+timestamp=()
+[[ "$identity" != "-" ]] && timestamp=(--timestamp)
+codesign --force --options runtime ${timestamp[@]+"${timestamp[@]}"} --sign "$identity" "$app/Contents/MacOS/polaris-mcp"
+codesign --force --options runtime ${timestamp[@]+"${timestamp[@]}"} --sign "$identity" "$app"
 codesign --verify --deep --strict "$app"
 echo "Created $app"
