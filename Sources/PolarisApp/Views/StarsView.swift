@@ -12,9 +12,14 @@ struct StarsView: View {
     @State private var hovered: UUID?
     /// 控えの行のうち、期限と予約の欄を開いている1件。
     @State private var editingID: UUID?
-    /// ドラッグ中は手元の並びで動かし、落としたときに1回だけ保存する。
+    /// 控えのドラッグ。掴んだ行を指に付けて動かし、ほかの行は落ちる先を空けるようにずらす。離したときに1回だけ保存する。
     @State private var draggingID: UUID?
+    @State private var dragY: CGFloat = 0
+    /// 保存が返ってくるまで、落とした並びを手元で見せる。
     @State private var order: [UUID]?
+    @State private var rowFrames: [UUID: CGRect] = [:]
+    /// 掴んでいるあいだだけ true。取り消されて onEnded が来なくても false に戻るので、片付けの合図に使う。
+    @GestureState private var pressing = false
     @State private var logOpen = false
 
     private typealias S = PolarisTheme.Space
@@ -27,20 +32,15 @@ struct StarsView: View {
         }
         .frame(width: Self.width)
         .background(PolarisTheme.Palette.surface)
-        .onChange(of: model.state.queuedStars.map(\.id)) { _, _ in resetDrag() }
+        .onChange(of: model.state.queuedStars.map(\.id)) { _, _ in order = nil }
         .onDisappear { resetDrag() }
-        // ⎋ や窓の外で離したドラッグは、落とした合図が来ない。ボタンが離れていたら手元の並びを捨てる。
-        .task(id: draggingID) {
-            while draggingID != nil {
-                try? await _Concurrency.Task.sleep(for: .milliseconds(300))
-                if NSEvent.pressedMouseButtons == 0 { resetDrag() }
-            }
-        }
+        .onChange(of: pressing) { _, held in if !held && draggingID != nil { resetDrag() } }
     }
 
     private func resetDrag() {
-        order = nil
-        draggingID = nil
+        var t = Transaction(animation: nil)
+        t.disablesAnimations = true
+        withTransaction(t) { draggingID = nil; dragY = 0 }
     }
 
     private var content: some View {
@@ -90,15 +90,68 @@ struct StarsView: View {
 
     private var queue: some View {
         let stars = displayedQueue
+        let target = dropIndex(in: stars)
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(stars.enumerated()), id: \.element.id) { index, star in
-                if index > 0 { Hairline() }
-                queueRow(star, index: index, count: stars.count)
+                VStack(spacing: 0) {
+                    if index > 0 { Hairline().opacity(draggingID == star.id ? 0 : 1) }
+                    queueRow(star, index: index, count: stars.count)
+                }
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.queueSpace)) }) { rowFrames[star.id] = $0 }
+                .offset(y: rowOffset(star.id, index: index, in: stars, target: target))
+                .zIndex(draggingID == star.id ? 1 : 0)
             }
             if !stars.isEmpty { Hairline() }
             addField(full: stars.count >= TextRules.starQueueMax)
                 .padding(.vertical, S.m)
         }
+        .coordinateSpace(name: Self.queueSpace)
+    }
+
+    nonisolated private static let queueSpace = "starQueue"
+
+    /// 掴んだ行の真ん中がどの行の真ん中を越えたかで、落とす位置を決める。
+    private func dropIndex(in stars: [NorthStar]) -> Int? {
+        guard let id = draggingID, let frame = rowFrames[id] else { return nil }
+        let mid = frame.midY + dragY
+        return stars.filter { $0.id != id }.filter { (rowFrames[$0.id]?.midY ?? .infinity) < mid }.count
+    }
+
+    private func rowOffset(_ id: UUID, index: Int, in stars: [NorthStar], target: Int?) -> CGFloat {
+        guard let dragging = draggingID, let from = stars.firstIndex(where: { $0.id == dragging }), let target else { return 0 }
+        if id == dragging { return dragY }
+        let shift = rowFrames[dragging]?.height ?? 0
+        if from < target, index > from, index <= target { return -shift }
+        if target < from, index >= target, index < from { return shift }
+        return 0
+    }
+
+    private func dragGesture(_ star: NorthStar, in stars: [NorthStar]) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.queueSpace))
+            .updating($pressing) { _, state, _ in state = true }
+            .onChanged { value in
+                if draggingID == nil {
+                    draggingID = star.id
+                    editingID = nil
+                }
+                withAnimation(PolarisTheme.Motion.promote(theme.reduceMotion)) { dragY = value.translation.height }
+            }
+            .onEnded { _ in
+                let from = stars.firstIndex { $0.id == star.id }
+                let to = dropIndex(in: stars)
+                if let from, let to, from != to {
+                    var ids = stars.map(\.id)
+                    ids.remove(at: from)
+                    ids.insert(star.id, at: to)
+                    var t = Transaction(animation: nil)
+                    t.disablesAnimations = true
+                    withTransaction(t) { order = ids; draggingID = nil; dragY = 0 }
+                    // 保存に失敗しても手元の並びを残さない。成功したときは新しい並びが先に届いている。
+                    model.moveQueuedNorthStar(star.id, to: to) { order = nil }
+                } else {
+                    withAnimation(PolarisTheme.Motion.promote(theme.reduceMotion)) { draggingID = nil; dragY = 0 }
+                }
+            }
     }
 
     private func queueRow(_ star: NorthStar, index: Int, count: Int) -> some View {
@@ -146,25 +199,19 @@ struct StarsView: View {
                 .transition(.opacity)
             }
         }
-        .opacity(draggingID == star.id ? 0.4 : 1)
-        .onHover { inside in
-            if inside {
-                // ドラッグ中はホバーが来ない。来たらドラッグは窓の外で終わっているので、手元の並びを捨てる。
-                if draggingID != nil { draggingID = nil; order = nil }
-                hovered = star.id
-            } else if hovered == star.id {
-                hovered = nil
+        .background {
+            // 掴んだ行は面を浮かせ、指に付いていることを見せる。
+            if draggingID == star.id {
+                RoundedRectangle(cornerRadius: PolarisTheme.Radius.button, style: .continuous)
+                    .fill(PolarisTheme.Palette.raised)
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .padding(.horizontal, -S.s)
             }
         }
-        .modifier(DragReorder(enabled: !theme.snapshot, provide: {
-            draggingID = star.id
-            return NSItemProvider(object: star.id.uuidString as NSString)
-        }, delegate: StarDropDelegate(target: star.id, draggingID: $draggingID, order: $order,
-                                      queue: model.state.queuedStars.map(\.id),
-                                      reduceMotion: theme.reduceMotion) { id, position in
-            // 保存に失敗しても手元の並びを残さない。成功したときは新しい並びが先に届いている。
-            model.moveQueuedNorthStar(id, to: position) { order = nil }
-        }))
+        .onHover { inside in
+            if inside { hovered = star.id } else if hovered == star.id { hovered = nil }
+        }
+        .gesture(dragGesture(star, in: displayedQueue))
         .accessibilityElement(children: .contain)
         .accessibilityHint(Copy.starsEditHint)
         .accessibilityAction(named: Copy.starUseNext) { model.activateNorthStar(star.id) }
@@ -308,51 +355,6 @@ struct StarsView: View {
     }
 }
 
-/// ドラッグで控えを並べ替える。重なった行の位置へ手元の並びを動かし、落としたら保存する。
-private struct StarDropDelegate: DropDelegate {
-    var target: UUID
-    @Binding var draggingID: UUID?
-    @Binding var order: [UUID]?
-    var queue: [UUID]
-    var reduceMotion: Bool
-    var commit: (UUID, Int) -> Void
-
-    func dropEntered(info: DropInfo) {
-        guard let dragging = draggingID, dragging != target else { return }
-        var ids = order ?? queue
-        guard let from = ids.firstIndex(of: dragging), let to = ids.firstIndex(of: target) else { return }
-        ids.remove(at: from)
-        ids.insert(dragging, at: to)
-        withAnimation(PolarisTheme.Motion.promote(reduceMotion)) { order = ids }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-
-    func performDrop(info: DropInfo) -> Bool {
-        defer { draggingID = nil }
-        guard let dragging = draggingID, let ids = order, let position = ids.firstIndex(of: dragging) else {
-            order = nil
-            return false
-        }
-        if position != queue.firstIndex(of: dragging) { commit(dragging, position) } else { order = nil }
-        return true
-    }
-}
-
-/// ドラッグの出し手と受け手。ImageRenderer は onDrag の付いた行を描けないので、スナップショットでは付けない。
-private struct DragReorder: ViewModifier {
-    var enabled: Bool
-    var provide: () -> NSItemProvider
-    var delegate: StarDropDelegate
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content.onDrag(provide).onDrop(of: [.text], delegate: delegate)
-        } else {
-            content
-        }
-    }
-}
 
 /// 見た目のボタンは出さないが、VoiceOver とキーボードからは1つずつ動かせるようにする。
 private struct MoveActions: ViewModifier {
