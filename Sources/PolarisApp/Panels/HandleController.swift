@@ -76,7 +76,7 @@ final class HandleController {
 
     private func hoverChanged(_ hovered: Bool) {
         if hovered { model.pointerOnHandle() }
-        host.rootView = HandleGrip(hovered: hovered, theme: model.theme)
+        host.rootView = HandleGrip(hovered: hovered, expanded: model.expanded, theme: model.theme)
         if hovered {
             NSCursor.openHand.set()
             hintHost.rootView = HandleHintView(text: model.expanded ? Copy.handleHelpOpen : Copy.handleHelpClosed, theme: model.theme)
@@ -97,10 +97,11 @@ final class HandleController {
     }
 }
 
-/// つまみの見た目。付箋の縁に沿った細い帯に、掴めそうな点を2列×3段。
-/// ふだんは点だけで付箋の一部に見せ、ホバーで帯の面を出す。
+/// つまみの見た目。付箋の縁に沿った帯に、掴めそうな点を2列×3段。
+/// ホバーすると点を開閉の矢印に替え、押せば開く（閉じる）ことを見せる。
 struct HandleGrip: View {
     var hovered: Bool
+    var expanded: Bool = false
     var theme: ThemeContext
 
     var body: some View {
@@ -108,17 +109,26 @@ struct HandleGrip: View {
         ZStack {
             shape.fill(hovered ? PolarisTheme.Palette.pressFill : PolarisTheme.Palette.hoverFill)
             if theme.increaseContrast { shape.strokeBorder(PolarisTheme.Palette.HighContrast.border, lineWidth: 1) }
-            Grid(horizontalSpacing: 2, verticalSpacing: 3) {
-                ForEach(0..<3, id: \.self) { _ in
-                    GridRow {
-                        Circle().frame(width: 2.5, height: 2.5)
-                        Circle().frame(width: 2.5, height: 2.5)
+            if hovered {
+                Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(theme.ink)
+                    .transition(.opacity)
+            } else {
+                Grid(horizontalSpacing: 2.5, verticalSpacing: 3.5) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        GridRow {
+                            Circle().frame(width: 3, height: 3)
+                            Circle().frame(width: 3, height: 3)
+                        }
                     }
                 }
+                .foregroundStyle(theme.ink2)
+                .transition(.opacity)
             }
-            .foregroundStyle(hovered ? theme.ink : theme.ink2)
         }
         .frame(width: PolarisTheme.Metrics.handleWidth, height: PolarisTheme.Metrics.handleHeight)
+        .animation(.easeOut(duration: theme.reduceMotion ? 0 : 0.12), value: hovered)
         .environment(\.polaris, theme)
     }
 }

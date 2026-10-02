@@ -103,10 +103,10 @@ enum PolarisTheme {
         static let laterRow: CGFloat = 32
         static let laterMaxRows = 5
         static let collapsedDayClosedHeight: CGFloat = 44
-        /// 透過中に付箋の内側の縁へ重ねるつまみ。左右の余白（20）に収まり、文字まで6空ける。
-        static let handleWidth: CGFloat = 10
-        static let handleHeight: CGFloat = 44
-        static let handleInset: CGFloat = 4
+        /// 透過中に付箋の内側の縁へ重ねるつまみ。左右の余白（20）に収まり、文字まで3空ける。
+        static let handleWidth: CGFloat = 14
+        static let handleHeight: CGFloat = 48
+        static let handleInset: CGFloat = 3
         /// 点8 + 間隔10。本命テキストの開始位置。
         static let taskTextInset: CGFloat = 18
     }
