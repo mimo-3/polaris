@@ -164,6 +164,7 @@ struct NorthStarView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint(Copy.northStarEmptyHint)
+                .noteHint(Hint.starEmpty)
             } else {
                 let text = model.today.northStar
                 Text(WordWrap.japanese(text))
@@ -177,6 +178,7 @@ struct NorthStarView: View {
                     // 1回押すと北極星の窓（期限・予約・控え）を開き、2回で書き直す。
                     .gesture(TapGesture(count: 2).onEnded { model.beginEditing(.northStar) }
                         .exclusively(before: TapGesture().onEnded { (NSApp.delegate as? AppCoordinator)?.showStars() }))
+                    .noteHint(Hint.star)
                     .accessibilityLabel("北極星、\(text)")
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityAction(named: "編集") { model.beginEditing(.northStar) }
@@ -259,6 +261,7 @@ private struct AddRow: View {
             }
             .buttonStyle(InlineButtonStyle())
             .focusRing(model.focusedTarget == .add)
+            .noteHint(Hint.addTask)
         }
     }
 }
@@ -314,6 +317,7 @@ struct StarQueueLine: View {
                 .layoutPriority(1)
                 .accessibilityElement(children: .combine)
                 .accessibilityHint(Copy.starsOpenHint)
+                .noteHint(Hint.starQueue)
             } else {
                 Button { (NSApp.delegate as? AppCoordinator)?.showStars() } label: {
                     HStack(spacing: 6) {
@@ -327,10 +331,12 @@ struct StarQueueLine: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint(Copy.starsOpenHint)
+                .noteHint(Hint.starQueue)
             }
             Spacer(minLength: 0)
             Button(hasToday ? Copy.starAchieved : Copy.starUseNext) { model.performStarQueueAction() }
                 .buttonStyle(SmallButtonStyle(outlined: true, focused: model.focusedTarget == .starQueue))
+                .noteHint(hasToday ? Hint.starAchieve : Hint.starUseNext)
         }
         .frame(minHeight: 24)
     }

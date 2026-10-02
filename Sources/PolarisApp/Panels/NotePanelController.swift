@@ -6,9 +6,13 @@ import SwiftUI
 final class NotePanelController {
     let model: NoteModel
     let panel: FloatingPanel
+    /// 透過中だけ脇に出すつまみ。
+    let handle: HandleController
     private let hosting: TrackingHostingView<NotePanelRoot>
     private var panelHeight: CGFloat = 150
     private var contentHeight: CGFloat = 150
+    /// 閉じているときの高さ。開いていても、つまみをこの高さの真ん中に置いて動かさない。
+    private var collapsedHeight: CGFloat = 150
     private var shrinkTask: _Concurrency.Task<Void, Never>?
     private var peekTimer: Timer?
     private var hideTimer: _Concurrency.Task<Void, Never>?
@@ -31,6 +35,7 @@ final class NotePanelController {
         self.model = model
         panel = FloatingPanel(size: NSSize(width: PolarisTheme.Metrics.noteWidth, height: 150), keyable: true)
         panel.becomesKeyOnlyIfNeeded = true
+        handle = HandleController(model: model)
         hosting = TrackingHostingView(rootView: NotePanelRoot(model: model, onHeight: { _ in }, onDrag: { _ in }))
         hosting.sizingOptions = []
         panel.contentView = hosting
@@ -53,6 +58,9 @@ final class NotePanelController {
         ])
         model.requestKey = { [weak self] in self?.makeKey() }
         model.resignKey = { [weak self] in self?.releaseKey() }
+        model.interactivityChanged = { [weak self] in self?.applyInteractivity() }
+        handle.onClick = { [weak model] in model?.toggleFromHandle() }
+        handle.onDrag = { [weak self] in self?.drag($0) }
         restorePlacement()
 
         let center = NotificationCenter.default
@@ -74,6 +82,13 @@ final class NotePanelController {
         observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.placeAtCorner(animated: false) }
         })
+        // つまみは付箋の脇に付いて回る。
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            observers.append(center.addObserver(forName: name, object: panel, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.layoutHandle() }
+            })
+        }
+        setClickThrough(model.clickThrough)
     }
 
     /// 通知の購読をやめる。作り直すときに呼ぶ。
@@ -85,7 +100,9 @@ final class NotePanelController {
     }
 
     private func watchLeave() {
-        guard panel.isVisible, model.expanded, !panel.frame.contains(NSEvent.mouseLocation) else {
+        // つまみと付箋のあいだの隙間を通るときに畳まないよう、つまみまで含めた枠で見る。
+        let area = handle.frame.isEmpty ? panel.frame : panel.frame.union(handle.frame.insetBy(dx: -(PolarisTheme.Metrics.handleGap + 2), dy: -4))
+        guard panel.isVisible, model.expanded, !area.contains(NSEvent.mouseLocation) else {
             outsideSince = nil
             return
         }
@@ -108,9 +125,10 @@ final class NotePanelController {
         placeAtCorner(animated: false)
         panel.alphaValue = 0
         panel.orderFrontRegardless()
+        updateHandle()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = PolarisTheme.Motion.visibilityDuration
-            panel.animator().alphaValue = targetAlpha
+            panel.animator().alphaValue = 1
         }
     }
 
@@ -120,6 +138,7 @@ final class NotePanelController {
         model.hidden = true
         onVisibilityChanged(true)
         model.unpinAll()
+        handle.setVisible(false)
         hideTimer?.cancel()
         if let minutes {
             hiddenUntil = Date().addingTimeInterval(minutes * 60)
@@ -141,18 +160,14 @@ final class NotePanelController {
 
     func toggleVisibility() { isHidden ? show() : hide() }
 
-    private var targetAlpha: CGFloat {
-        model.clickThrough && !model.optionPeek ? model.theme.clickThroughAlpha : 1
-    }
-
     // MARK: クリック透過
 
+    /// 閉じた付箋がクリックを後ろへ通すか。通すあいだは、脇のつまみだけが触れる場所になる。
     func setClickThrough(_ on: Bool) {
         model.clickThrough = on
         model.optionPeek = false
         if on { model.unpinAll() }
-        panel.ignoresMouseEvents = on
-        panel.alphaValue = isHidden ? 0 : targetAlpha
+        applyInteractivity()
         peekTimer?.invalidate()
         guard on else { return }
         // ⌥ を押していて、ポインタが付箋の上にあるあいだだけ触れる。グローバル監視は使わない。
@@ -165,9 +180,23 @@ final class NotePanelController {
         let peek = NSEvent.modifierFlags.contains(.option) && panel.frame.contains(NSEvent.mouseLocation)
         guard peek != model.optionPeek else { return }
         model.optionPeek = peek
-        panel.ignoresMouseEvents = !peek
-        if !isHidden { panel.alphaValue = targetAlpha }
-        if !peek { model.unpinAll() }
+        if !peek && !model.handleOpen { model.unpinAll() }
+    }
+
+    /// クリックを受け取れるかを窓に反映し、つまみを出し入れする。
+    private func applyInteractivity() {
+        panel.ignoresMouseEvents = !model.interactive
+        updateHandle()
+    }
+
+    private func updateHandle() {
+        let visible = model.clickThrough && !isHidden && panel.isVisible
+        if visible { layoutHandle() }
+        handle.setVisible(visible)
+    }
+
+    private func layoutHandle() {
+        handle.place(beside: panel.frame, corner: model.corner, collapsedHeight: min(collapsedHeight, panel.frame.height))
     }
 
     // MARK: key
@@ -198,6 +227,7 @@ final class NotePanelController {
 
     private func contentHeightChanged(_ height: CGFloat) {
         let target = ceil(height)
+        if !model.expanded { collapsedHeight = target }
         guard target != contentHeight else { return }
         contentHeight = target
         shrinkTask?.cancel()
@@ -321,6 +351,7 @@ struct NotePanelRoot: View {
         }
         .frame(width: PolarisTheme.Metrics.noteWidth)
         .frame(maxHeight: .infinity)
+        .overlay { NoteHintOverlay() }
         .coordinateSpace(name: NoteCard.space)
         .focusable(model.isKey && model.editing == nil)
         .focusEffectDisabled()

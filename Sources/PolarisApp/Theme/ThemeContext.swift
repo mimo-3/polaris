@@ -15,9 +15,6 @@ struct ThemeContext: Equatable, Sendable {
     var ink2: Color { increaseContrast ? P.HighContrast.ink2 : P.ink2 }
     var star: Color { increaseContrast ? P.HighContrast.star : P.star }
     var usesMaterial: Bool { !(snapshot || increaseContrast || reduceTransparency) }
-    var clickThroughAlpha: CGFloat {
-        increaseContrast ? PolarisTheme.Metrics.clickThroughAlphaHighContrast : PolarisTheme.Metrics.clickThroughAlpha
-    }
 
     @MainActor static func current() -> ThemeContext {
         let ws = NSWorkspace.shared

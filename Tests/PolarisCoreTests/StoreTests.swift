@@ -725,6 +725,17 @@ final class StoreTests {
         #expect(try DueDate.checked(nil) == nil)
     }
 
+    @Test func testDueDateAcceptsTime() throws {
+        #expect(try DueDate.checked("2026-06-01T18:30") == "2026-06-01T18:30")
+        #expect(try DueDate.checked("2026-06-01T00:00") == "2026-06-01T00:00")
+        for bad in ["2026-06-01T24:00", "2026-06-01T9:00", "2026-06-01T18:60", "2026-06-01T", "2026-06-01T18:30:00", "2026-02-30T10:00"] {
+            #expect(throws: PolarisError.self) { try DueDate.checked(bad) }
+        }
+        let subject = store(at: try home(), date: epoch)
+        let added = try subject.addTask(title: "時刻つき", dueDate: "2026-06-01T18:30")
+        #expect(added.task.dueDate == "2026-06-01T18:30")
+    }
+
     @Test func testSetNorthStarDueAndStart() throws {
         let subject = store(at: try home(), date: epoch)
         _ = try subject.setNorthStar("今日")

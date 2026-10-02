@@ -63,18 +63,28 @@ struct SettingsView: View {
 
     private var display: some View {
         @Bindable var model = model
+        // 濃さではなく透明度で見せる。0% が不透明。
+        let transparency = Binding(get: { 1 - model.noteOpacity }, set: { model.noteOpacity = 1 - $0 })
+        let percent = Int(((1 - model.noteOpacity) * 100).rounded())
         return GroupCard(title: Copy.settingsDisplay) {
             CardRow(title: Copy.settingsOpacity, detail: Copy.settingsOpacityDetail) {
                 HStack(spacing: S.s) {
-                    Slider(value: $model.noteOpacity, in: 0.4...1, step: 0.05)
+                    Slider(value: transparency, in: 0...0.8, step: 0.05)
                         .controlSize(.small)
                         .frame(width: 140)
                         .accessibilityLabel(Copy.settingsOpacity)
-                        .accessibilityValue("\(Int((model.noteOpacity * 100).rounded()))%")
-                    MetaText(text: "\(Int((model.noteOpacity * 100).rounded()))%", color: theme.ink)
+                        .accessibilityValue("\(percent)%")
+                    MetaText(text: "\(percent)%", color: theme.ink)
                         .monospacedDigit()
                         .frame(width: 36, alignment: .trailing)
                 }
+            }
+            Hairline()
+            CardRow(title: Copy.settingsClickThrough, detail: Copy.settingsClickThroughDetail) {
+                Toggle(isOn: Binding(get: { model.clickThrough },
+                                     set: { (NSApp.delegate as? AppCoordinator)?.note.setClickThrough($0) })) { EmptyView() }
+                    .toggleStyle(PolarisSwitchStyle())
+                    .accessibilityLabel(Copy.settingsClickThrough)
             }
             Hairline()
             CardRow(title: Copy.settingsCelebrate, detail: Copy.settingsCelebrateDetail) {

@@ -236,8 +236,8 @@ public struct MCPServer: Sendable {
         let position: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。now満杯ならlater末尾。"]
         let starText: [String: Any] = ["type": "string", "maxLength": TextRules.northStarMax]
         let starPosition: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。"]
-        let dueDate: [String: Any] = ["type": "string", "description": "この日までに終える期限。ローカル暦日のyyyy-MM-dd。"]
-        let dueDateOrNull: [String: Any] = ["type": ["string", "null"], "description": "この日までに終える期限。ローカル暦日のyyyy-MM-dd。nullで消す。"]
+        let dueDate: [String: Any] = ["type": "string", "description": "期限。ローカル時刻のyyyy-MM-dd（その日の終わりまで）かyyyy-MM-ddTHH:mm。"]
+        let dueDateOrNull: [String: Any] = ["type": ["string", "null"], "description": "期限。ローカル時刻のyyyy-MM-dd（その日の終わりまで）かyyyy-MM-ddTHH:mm。nullで消す。"]
         let startsAt: [String: Any] = ["type": "string", "description": "控えが自動で今日の北極星に上がる日時。ISO 8601（タイムゾーン付き）。省略時は手動。"]
         let startsAtOrNull: [String: Any] = ["type": ["string", "null"], "description": "控えが自動で今日の北極星に上がる日時。ISO 8601（タイムゾーン付き）。nullで消す（手動に戻す）。"]
         func tool(_ name: String, _ description: String, _ properties: [String: [String: Any]] = [:], _ required: [String] = []) -> [String: Any] {

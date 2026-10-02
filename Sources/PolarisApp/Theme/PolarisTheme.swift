@@ -103,8 +103,10 @@ enum PolarisTheme {
         static let laterRow: CGFloat = 32
         static let laterMaxRows = 5
         static let collapsedDayClosedHeight: CGFloat = 44
-        static let clickThroughAlpha: CGFloat = 0.72
-        static let clickThroughAlphaHighContrast: CGFloat = 0.9
+        /// 透過中に付箋の脇へ出すつまみ。
+        static let handleWidth: CGFloat = 14
+        static let handleHeight: CGFloat = 44
+        static let handleGap: CGFloat = 6
         /// 点8 + 間隔10。本命テキストの開始位置。
         static let taskTextInset: CGFloat = 18
     }
@@ -117,6 +119,8 @@ enum PolarisTheme {
     enum Motion {
         static let hoverDelay: Double = 0.25
         static let leaveDelay: Double = 0.5
+        /// ホバーの案内は、ポインタが止まってから出す。通り過ぎるだけなら出さない。
+        static let hintDelay: Double = 0.5
 
         static func expand(_ reduce: Bool) -> Animation {
             reduce ? .easeOut(duration: 0.15) : .spring(response: 0.32, dampingFraction: 0.9)

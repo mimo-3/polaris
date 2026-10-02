@@ -79,6 +79,7 @@ struct TaskRow: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, -8).padding(.vertical, -2)
+        .noteHint(Hint.complete, id: "complete-\(task.id)")
         .accessibilityLabel("\(task.title)を完了にする")
         .accessibilityValue(completing ? "完了" : "")
     }
@@ -100,6 +101,7 @@ struct TaskRow: View {
                 .truncationMode(.tail)
                 .overlay(alignment: .leading) { strike }
                 .onTapGesture(count: 2) { if model.expanded { model.beginEditing(.rename(task.id)) } }
+                .noteHint(Hint.rowRename, id: "rename-\(task.id)")
         }
     }
 
@@ -141,6 +143,7 @@ struct TaskRow: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .frame(width: PolarisTheme.Metrics.hitMin, height: PolarisTheme.Metrics.rowHeight)
+            .noteHint(Hint.rowMenu, id: "menu-\(task.id)")
             .accessibilityLabel("\(task.title)の操作")
         }
     }

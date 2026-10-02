@@ -45,7 +45,8 @@ extension NoteModel {
     /// 30秒ごとに呼ぶ。期限の「あと n日」を日付の替わり目で更新し、予約の時間が来た北極星を上げる。
     func tick() {
         let current = Date()
-        if !Calendar.current.isDate(current, inSameDayAs: now) { now = current }
+        // 期限の「あと何時間」を進めるため、分が変わったら now を進める。
+        if Int(current.timeIntervalSince1970 / 60) != Int(now.timeIntervalSince1970 / 60) { now = current }
         surfaceScheduledStars()
     }
 
@@ -273,7 +274,7 @@ extension NoteModel {
 
     /// 声の行に出ているボタンの数（左から順）。透過中は出さない。
     var voiceActionCount: Int {
-        guard !clickThrough || optionPeek else { return 0 }
+        guard interactive else { return 0 }
         switch voice {
         case .mode, .transient(.error), .transient(.modeChanged), .transient(.starSurfaced): return 0
         case .detour: return 2
