@@ -25,7 +25,7 @@ struct VoiceLineView: View {
                                                     removal: .opacity)
     }
 
-    private var showsButtons: Bool { !compact && (!model.clickThrough || model.optionPeek) }
+    private var showsButtons: Bool { !compact && model.interactive }
 
     private func focused(_ index: Int) -> Bool { model.focusedTarget == .voiceAction(index) }
 
@@ -297,7 +297,7 @@ private struct ExpandAccessibility: ViewModifier {
     }
 }
 
-/// 通常の声の行: モードの glyph ＋ 名前。展開中と全部完了の日は右に「済 n」、透過中は ⊘。
+/// 通常の声の行: モードの glyph ＋ 名前。展開中と全部完了の日は右に「済 n」。
 /// モードの名前を押すと、その場でモードを切り替えられる。
 struct ModeLine: View {
     var showCounts: Bool
@@ -320,14 +320,8 @@ struct ModeLine: View {
                     MetaText(text: Copy.done(model.today.done.count))
                         .contentTransition(.numericText())
                 }
-                if model.clickThrough {
-                    Image(systemName: "cursorarrow.slash")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(model.optionPeek ? theme.ink : theme.ink2)
-                        .accessibilityLabel(Copy.clickThroughIcon)
-                }
             }
-            .modifier(ExpandAccessibility(enabled: !closed && (!model.clickThrough || model.optionPeek)))
+            .modifier(ExpandAccessibility(enabled: !closed && model.interactive))
             if switchable && !closed && model.expanded { settingsButton }
         }
         .frame(height: 16)
@@ -345,7 +339,7 @@ struct ModeLine: View {
         .buttonStyle(.plain)
         .frame(width: 24, height: 16)
         .padding(.trailing, -4)
-        .help(Copy.settingsOpen)
+        .noteHint(Hint.settings)
         .accessibilityLabel(Copy.settingsOpen)
     }
 
@@ -384,7 +378,8 @@ struct ModeLine: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .disabled(model.clickThrough && !model.optionPeek)
+        .disabled(!model.interactive)
+        .noteHint(Hint.mode)
         .accessibilityLabel(Copy.modeMenu(model.mode.label))
     }
 }

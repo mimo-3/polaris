@@ -9,8 +9,10 @@ enum Copy {
     static func modeMenu(_ label: String) -> String { "モード、\(label)。押すと切り替える" }
     static let northStarEmptyHint = "押すと今日の北極星を書ける"
     static let settingsDisplay = "表示"
-    static let settingsOpacity = "付箋の濃さ"
-    static let settingsOpacityDetail = "閉じているときだけ。開くと濃くなる"
+    static let settingsOpacity = "付箋の透明度"
+    static let settingsOpacityDetail = "閉じているときだけ。開くと元の濃さに戻る"
+    static let settingsClickThrough = "閉じた付箋のクリックを通す"
+    static let settingsClickThroughDetail = "後ろの窓を触れる。脇のつまみで開く・動かす（⌃⌥T）"
     static let settingsCelebrate = "達成したときの演出"
     static let settingsCelebrateDetail = "北極星を達成すると、星が弾ける"
     static let settingsSound = "演出の音"
@@ -147,7 +149,7 @@ enum Copy {
     static let hideNote = "付箋を隠す"
     static let showNote = "付箋を表示する"
     static let hide15 = "15分だけ隠す"
-    static let clickThrough = "クリック透過"
+    static let clickThrough = "閉じた付箋のクリックを通す"
     static let editNorthStar = "北極星を書き換える…"
     static let addTask = "タスクを追加…"
     static let redoMorning = "朝の支度をやり直す…"
@@ -155,7 +157,9 @@ enum Copy {
     static let cornerMenu = "付箋を置く隅"
     static let settings = "設定…"
     static let quit = "Polarisを終了"
-    static let clickThroughIcon = "クリック透過中。⌃⌥T で戻す"
+    static let handleLabel = "付箋のつまみ"
+    static let handleHelpClosed = "クリックで開く・ドラッグで動かす"
+    static let handleHelpOpen = "クリックで閉じる・ドラッグで動かす"
     static let expandAction = "展開する"
     static let collapseAction = "たたむ"
     static let expandedValue = "展開中"
@@ -188,4 +192,21 @@ enum Copy {
                      "codex": "Codex", "codex-mcp-client": "Codex", "cursor": "Cursor", "cursor-vscode": "Cursor"]
         return known[name.lowercased()] ?? name
     }
+}
+
+/// ホバーで出す案内。押すと何が起きるかを一言で書く。
+enum Hint {
+    static let star = "クリックで期限と控え・ダブルクリックで書き直す"
+    static let starEmpty = "今日の北極星を決める"
+    static let starQueue = "控えと振り返りの窓を開く"
+    static let starAchieve = "達成にして、次の控えを今日の北極星にする"
+    static let starUseNext = "先頭の控えを今日の北極星にする"
+    static let complete = "完了にする"
+    static let rowMenu = "期限・名前・あとでへ送るなど"
+    static let rowRename = "ダブルクリックで名前を変える"
+    static let addTask = "いまのタスクに足す。3件で満杯ならあとでへ"
+    static let later = "あとでのタスクを開く・閉じる"
+    static let moveToNow = "いまのタスクへ移す"
+    static let mode = "今日のモードを切り替える"
+    static let settings = "設定を開く（透明度・クリック透過・ショートカットなど）"
 }
