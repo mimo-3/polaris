@@ -225,8 +225,9 @@ extension NoteModel {
         case .add: addTask(text, to: .now)
         case .queueStar: queueNorthStar(text)
         }
-        // 続けて足すものは入力欄を残す。
-        if editing == .add || editing == .queueStar, !text.trimmingCharacters(in: .whitespaces).isEmpty {
+        // 続けて足すものは入力欄を残す。控えはいま足した分で満杯になるなら閉じる。
+        let queueFull = editing == .queueStar && state.queuedStars.count + 1 >= TextRules.starQueueMax
+        if editing == .add || editing == .queueStar, !queueFull, !text.trimmingCharacters(in: .whitespaces).isEmpty {
             draft = "" // 続けて足せるように入力欄は残す
             return
         }
