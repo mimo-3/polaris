@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 swift build -c release
 bin_dir="$(swift build -c release --show-bin-path)"
 app="build/Polaris.app"
+rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin_dir/PolarisApp" "$app/Contents/MacOS/Polaris"
 cp "$bin_dir/polaris-mcp" "$app/Contents/MacOS/polaris-mcp"
