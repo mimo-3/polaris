@@ -88,4 +88,6 @@ enum Editing: Equatable {
     case northStar
     case rename(UUID)
     case add
+    /// 付箋の「＋」から控えに北極星を足す。
+    case queueStar
 }

@@ -210,7 +210,7 @@ extension NoteModel {
         switch target {
         case .northStar: draft = state.today.northStar
         case .rename(let id): draft = (state.today.now + state.later).first { $0.id == id }?.title ?? ""
-        case .add: draft = ""
+        case .add, .queueStar: draft = ""
         }
         withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { editing = target }
         requestKey()
@@ -223,8 +223,10 @@ extension NoteModel {
         case .northStar: setNorthStar(text)
         case .rename(let id): rename(id, to: text)
         case .add: addTask(text, to: .now)
+        case .queueStar: queueNorthStar(text)
         }
-        if case .add = editing, !text.trimmingCharacters(in: .whitespaces).isEmpty {
+        // 続けて足すものは入力欄を残す。
+        if editing == .add || editing == .queueStar, !text.trimmingCharacters(in: .whitespaces).isEmpty {
             draft = "" // 続けて足せるように入力欄は残す
             return
         }
@@ -339,6 +341,7 @@ extension NoteModel {
         case .northStar: setNorthStar(text)
         case .rename(let id): rename(id, to: text)
         case .add: addTask(text, to: .now)
+        case .queueStar: queueNorthStar(text)
         }
         withAnimation(PolarisTheme.Motion.collapse(theme.reduceMotion)) { self.editing = nil }
         draft = ""
