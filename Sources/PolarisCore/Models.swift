@@ -224,17 +224,25 @@ public enum PolarisError: Error, Sendable, LocalizedError {
         case .taskNotFound: "タスクが見つかりません"
         case .northStarNotFound: "北極星が見つかりません"
         case .northStarNotQueued: "控えの北極星にだけ予約できます"
-        case .invalidDate: "日付はyyyy-MM-dd形式の実在する日付にしてください"
+        case .invalidDate: "期限はyyyy-MM-ddかyyyy-MM-ddTHH:mm形式の実在する日時にしてください"
         case .unknownMode: "モードが見つかりません"
         case .unsupportedSchema(let version): "未対応のschemaVersion: \(version)"
         }
     }
 }
 
-/// ローカル暦日キー `yyyy-MM-dd` の検証。nil はそのまま通す。
+/// 期限の検証。ローカル暦日の `yyyy-MM-dd`（その日の終わりまで）か、時刻つきの `yyyy-MM-ddTHH:mm`。nil はそのまま通す。
 public enum DueDate {
     public static func checked(_ value: String?) throws -> String? {
         guard let value else { return nil }
+        let halves = value.split(separator: "T", omittingEmptySubsequences: false)
+        guard halves.count <= 2 else { throw PolarisError.invalidDate }
+        try checkDay(String(halves[0]))
+        if halves.count == 2 { try checkTime(String(halves[1])) }
+        return value
+    }
+
+    private static func checkDay(_ value: String) throws {
         let parts = value.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.count == 3,
               let year = Int(parts[0]), parts[0].count == 4,
@@ -252,6 +260,14 @@ public enum DueDate {
         guard resolved.year == year, resolved.month == month, resolved.day == day else {
             throw PolarisError.invalidDate
         }
-        return value
+    }
+
+    private static func checkTime(_ value: String) throws {
+        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].count == 2, parts[1].count == 2,
+              let hour = Int(parts[0]), let minute = Int(parts[1]),
+              (0..<24).contains(hour), (0..<60).contains(minute) else {
+            throw PolarisError.invalidDate
+        }
     }
 }
