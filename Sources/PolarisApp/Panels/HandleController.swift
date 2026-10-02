@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// 閉じた付箋がクリックを通しているあいだ、付箋の画面中央側の脇に出す「つまみ」。
-/// ここだけはクリックを受け取る。ホバーでは開かず、クリックで開閉、ドラッグで付箋ごと動かす。
+/// 閉じた付箋がクリックを通しているあいだ、付箋の画面中央側の縁の内側に重ねる「つまみ」。
+/// クリックを通すかは窓ごとにしか決められないので、つまみは小さな別の窓にして付箋の上に置く。ここだけはクリックを受け取る。ホバーでは開かず、クリックで開閉、ドラッグで付箋ごと動かす。
 @MainActor
 final class HandleController {
     private let panel: FloatingPanel
@@ -22,6 +22,8 @@ final class HandleController {
         let size = NSSize(width: PolarisTheme.Metrics.handleWidth, height: PolarisTheme.Metrics.handleHeight)
         panel = FloatingPanel(size: size, keyable: false)
         panel.hasShadow = false
+        // 付箋の窓より常に上に置く。付箋が key になって前へ出ても隠れないようにする。
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
         panel.setAccessibilityLabel(Copy.handleLabel)
         host = HandleHostingView(rootView: HandleGrip(hovered: false, theme: model.theme))
         host.frame = NSRect(origin: .zero, size: size)
@@ -30,6 +32,7 @@ final class HandleController {
         hintPanel = FloatingPanel(size: NSSize(width: 10, height: 10), keyable: false)
         hintPanel.hasShadow = false
         hintPanel.ignoresMouseEvents = true
+        hintPanel.level = panel.level
         hintHost = NSHostingView(rootView: HandleHintView(text: "", theme: model.theme))
         hintHost.sizingOptions = []
         hintPanel.contentView = hintHost
@@ -46,13 +49,13 @@ final class HandleController {
         host.setAccessibilityLabel(Copy.handleLabel)
     }
 
-    /// 付箋の枠に合わせて、画面中央側の脇・閉じたときの高さの真ん中に置く。
+    /// 付箋の枠に合わせて、画面中央側の縁の内側・閉じたときの高さの真ん中に置く。
     /// - Parameters:
     ///   - note: 付箋の窓の枠。
     ///   - collapsedHeight: 閉じたときの付箋の高さ。開いていても、つまみの位置を動かさないため。
     func place(beside note: NSRect, corner: Corner, collapsedHeight: CGFloat) {
         let m = PolarisTheme.Metrics.self
-        let x = corner.isLeft ? note.maxX + m.handleGap : note.minX - m.handleGap - m.handleWidth
+        let x = corner.isLeft ? note.maxX - m.handleInset - m.handleWidth : note.minX + m.handleInset
         let midY = corner.isTop ? note.maxY - collapsedHeight / 2 : note.minY + collapsedHeight / 2
         panel.setFrame(NSRect(x: x, y: midY - m.handleHeight / 2, width: m.handleWidth, height: m.handleHeight), display: true)
         if hintPanel.isVisible { placeHint() }
@@ -84,27 +87,28 @@ final class HandleController {
         }
     }
 
-    /// 吹き出しはつまみのさらに画面中央側に、縦の真ん中を揃えて出す。
+    /// 吹き出しは付箋の外、つまみのさらに画面中央側に、縦の真ん中を揃えて出す。
     private func placeHint() {
         let size = hintHost.fittingSize
         let handle = panel.frame
-        let x = model.corner.isLeft ? handle.maxX + 6 : handle.minX - 6 - size.width
+        let gap = PolarisTheme.Metrics.handleInset + 6
+        let x = model.corner.isLeft ? handle.maxX + gap : handle.minX - gap - size.width
         hintPanel.setFrame(NSRect(x: x, y: handle.midY - size.height / 2, width: size.width, height: size.height), display: true)
     }
 }
 
-/// つまみの見た目。縦長のカプセルに、掴めそうな点を2列×3段。
+/// つまみの見た目。付箋の縁に沿った細い帯に、掴めそうな点を2列×3段。
+/// ふだんは点だけで付箋の一部に見せ、ホバーで帯の面を出す。
 struct HandleGrip: View {
     var hovered: Bool
     var theme: ThemeContext
 
     var body: some View {
-        let shape = Capsule(style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: PolarisTheme.Metrics.handleWidth / 2, style: .continuous)
         ZStack {
-            shape.fill(hovered ? PolarisTheme.Palette.raised : PolarisTheme.Palette.surface)
-            shape.strokeBorder(theme.increaseContrast ? PolarisTheme.Palette.HighContrast.border : PolarisTheme.Palette.hairline,
-                               lineWidth: 1)
-            Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+            shape.fill(hovered ? PolarisTheme.Palette.pressFill : PolarisTheme.Palette.hoverFill)
+            if theme.increaseContrast { shape.strokeBorder(PolarisTheme.Palette.HighContrast.border, lineWidth: 1) }
+            Grid(horizontalSpacing: 2, verticalSpacing: 3) {
                 ForEach(0..<3, id: \.self) { _ in
                     GridRow {
                         Circle().frame(width: 2.5, height: 2.5)

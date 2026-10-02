@@ -6,7 +6,7 @@ import SwiftUI
 final class NotePanelController {
     let model: NoteModel
     let panel: FloatingPanel
-    /// 透過中だけ脇に出すつまみ。
+    /// 透過中だけ内側の縁に重ねるつまみ。
     let handle: HandleController
     private let hosting: TrackingHostingView<NotePanelRoot>
     private var panelHeight: CGFloat = 150
@@ -100,9 +100,7 @@ final class NotePanelController {
     }
 
     private func watchLeave() {
-        // つまみと付箋のあいだの隙間を通るときに畳まないよう、つまみまで含めた枠で見る。
-        let area = handle.frame.isEmpty ? panel.frame : panel.frame.union(handle.frame.insetBy(dx: -(PolarisTheme.Metrics.handleGap + 2), dy: -4))
-        guard panel.isVisible, model.expanded, !area.contains(NSEvent.mouseLocation) else {
+        guard panel.isVisible, model.expanded, !panel.frame.contains(NSEvent.mouseLocation) else {
             outsideSince = nil
             return
         }
