@@ -99,6 +99,8 @@ struct StarsView: View {
                 }
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.queueSpace)) }) { rowFrames[star.id] = $0 }
                 .offset(y: rowOffset(star.id, index: index, in: stars, target: target))
+                // ほかの行は落ちる先を空けるように動かす。掴んだ行は指から遅れないよう動かさない。
+                .animation(draggingID == star.id ? nil : PolarisTheme.Motion.promote(theme.reduceMotion), value: target)
                 .zIndex(draggingID == star.id ? 1 : 0)
             }
             if !stars.isEmpty { Hairline() }
@@ -112,8 +114,13 @@ struct StarsView: View {
 
     /// 掴んだ行の真ん中がどの行の真ん中を越えたかで、落とす位置を決める。
     private func dropIndex(in stars: [NorthStar]) -> Int? {
-        guard let id = draggingID, let frame = rowFrames[id] else { return nil }
-        let mid = frame.midY + dragY
+        guard let id = draggingID else { return nil }
+        return dropIndex(of: id, movedBy: dragY, in: stars)
+    }
+
+    private func dropIndex(of id: UUID, movedBy offset: CGFloat, in stars: [NorthStar]) -> Int? {
+        guard let frame = rowFrames[id] else { return nil }
+        let mid = frame.midY + offset
         return stars.filter { $0.id != id }.filter { (rowFrames[$0.id]?.midY ?? .infinity) < mid }.count
     }
 
@@ -134,11 +141,12 @@ struct StarsView: View {
                     draggingID = star.id
                     editingID = nil
                 }
-                withAnimation(PolarisTheme.Motion.promote(theme.reduceMotion)) { dragY = value.translation.height }
+                dragY = value.translation.height
             }
-            .onEnded { _ in
+            .onEnded { value in
+                // 片付けが先に走って state が消えていても落とせるよう、位置は値から求める。
                 let from = stars.firstIndex { $0.id == star.id }
-                let to = dropIndex(in: stars)
+                let to = dropIndex(of: star.id, movedBy: value.translation.height, in: stars)
                 if let from, let to, from != to {
                     var ids = stars.map(\.id)
                     ids.remove(at: from)
@@ -183,6 +191,8 @@ struct StarsView: View {
             }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
+            // 掴めるのは見出しの行だけ。開いた期限・予約の欄を触っても並べ替えは始めない。
+            .gesture(dragGesture(star, in: displayedQueue))
             .onTapGesture {
                 withAnimation(PolarisTheme.Motion.laterDisclose(theme.reduceMotion)) {
                     editingID = isEditing ? nil : star.id
@@ -211,7 +221,6 @@ struct StarsView: View {
         .onHover { inside in
             if inside { hovered = star.id } else if hovered == star.id { hovered = nil }
         }
-        .gesture(dragGesture(star, in: displayedQueue))
         .accessibilityElement(children: .contain)
         .accessibilityHint(Copy.starsEditHint)
         .accessibilityAction(named: Copy.starUseNext) { model.activateNorthStar(star.id) }
