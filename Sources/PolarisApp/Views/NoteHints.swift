@@ -16,9 +16,9 @@ private struct NoteHintTarget: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(NoteCard.space)) }) { frame in
-                model.hintTargets[id] = (text, frame)
+                model.setHintTarget(id, text: text, frame: frame)
             }
-            .onDisappear { model.hintTargets[id] = nil }
+            .onDisappear { model.removeHintTarget(id) }
     }
 }
 

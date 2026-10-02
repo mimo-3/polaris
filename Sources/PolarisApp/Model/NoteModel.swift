@@ -154,6 +154,18 @@ final class NoteModel {
         }
     }
 
+    func setHintTarget(_ id: String, text: String, frame: CGRect) {
+        hintTargets[id] = (text, frame)
+        // 出している案内の場所が動いたら、吹き出しも付いていく。
+        if hintCandidate == id, hint != nil { hint = NoteHint(text: text, frame: frame) }
+    }
+
+    /// 完了などで場所ごと消えたら、ポインタが動かなくても案内を下ろす。
+    func removeHintTarget(_ id: String) {
+        hintTargets[id] = nil
+        if hintCandidate == id { clearHint() }
+    }
+
     func clearHint() {
         hintTask?.cancel()
         hintCandidate = nil
@@ -369,6 +381,19 @@ final class NoteModel {
             hoverOpen = false
             if !expanded { laterOpen = false }
         }
+        settleIfClosed()
+    }
+
+    /// 畳んだら、つまみで開いた印と案内を下ろす。透過中ならこれでクリックがまた後ろへ通る。
+    private func settleIfClosed() {
+        guard !expanded else { return }
+        handleOpen = false
+        clearHint()
+    }
+
+    /// つまみの上にいるあいだは、付箋から外れたことによる畳みを待たせる。
+    func pointerOnHandle() {
+        hoverTimer?.cancel()
     }
 
     func togglePin() {
@@ -377,6 +402,7 @@ final class NoteModel {
                 pinned = false; swapping = nil
                 if !expanded { laterOpen = false }
             }
+            settleIfClosed()
         } else {
             withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { pinned = true }
         }
