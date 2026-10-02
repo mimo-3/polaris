@@ -15,7 +15,14 @@ make app
 open build/Polaris.app
 ```
 
-`make build` は `swift build` を実行します。`make test` はSwift Testingのテストを実行します。`make app` はreleaseビルドを `build/Polaris.app` にまとめ、Developer ID Application証明書があればその証明書で、なければアドホック署名します。公証は行いません。アイコンを追加する場合は `Resources/Polaris.icns` を配置してください。
+`make build` は `swift build` を実行します。`make test` はSwift Testingのテストを実行します。`make app` はreleaseビルドを `build/Polaris.app` にまとめ、Developer ID Application証明書があればその証明書で、なければアドホック署名します。公証は `make release` で行います。アイコンを追加する場合は `Resources/Polaris.icns` を配置してください。
+
+`make release` は `make app` のあと `build/Polaris.dmg` を作り、Developer ID署名・公証・ステープルまで行います。事前にApp Store Connect APIキーで公証用のキーチェーンプロファイルを作っておいてください。プロファイル名は `NOTARY_PROFILE` で変えられます（既定は `polaris-notary`）。
+
+```sh
+xcrun notarytool store-credentials polaris-notary --key <AuthKey_XXXX.p8> --key-id <Key ID> --issuer <Issuer ID>
+make release
+```
 
 `make snapshots` はアプリに `--render-snapshots snapshots/` を渡し、主要な状態をライト・ダーク（一部はコントラスト強調とモード違いも）でPNGに書き出して終了します。ウィンドウは出しません。ImageRendererは素材を描けないので、地は不透明の `surface` で近似します。
 
