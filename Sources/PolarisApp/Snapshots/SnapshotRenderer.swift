@@ -61,6 +61,8 @@ enum SnapshotRenderer {
         let model = NoteModel(state: scenario.state(mode), store: nil)
         model.theme = theme
         model.dayClosedDate = nil
+        // 既定は透過だが、多くの場面は開いた付箋を描くので、透過は場面ごとに入れる。
+        model.clickThrough = false
         scenario.configure(model)
         theme = model.theme // configure で Differentiate Without Color などを変えられる
 
@@ -210,9 +212,27 @@ enum SnapshotRenderer {
                            banner: Banner(text: "PR終わったよ、本命に戻ろう", from: "claude-code",
                                           expiresAt: Date().addingTimeInterval(3600)))
         }),
+        // 透過中の付箋と、画面中央側の脇に出るつまみ。
         Scenario(name: "clickthrough", build: { m in
-            AnyView(NoteCard().opacity(m.theme.clickThroughAlpha))
+            AnyView(HStack(spacing: PolarisTheme.Metrics.handleGap) {
+                HandleGrip(hovered: false, theme: m.theme)
+                NoteCard()
+            })
         }, configure: { m in m.clickThrough = true }),
+        Scenario(name: "clickthrough-hover", build: { m in
+            AnyView(HStack(spacing: PolarisTheme.Metrics.handleGap) {
+                HintBubble(text: Copy.handleHelpClosed)
+                HandleGrip(hovered: true, theme: m.theme)
+                NoteCard()
+            })
+        }, configure: { m in m.clickThrough = true }),
+        // ホバーの案内。歯車の上に止まったところ。
+        Scenario(name: "hint-settings", build: { _ in
+            AnyView(NoteCard().overlay { NoteHintOverlay() }.coordinateSpace(name: NoteCard.space))
+        }, configure: { m in
+            m.pinned = true
+            m.hint = NoteHint(text: Hint.settings, frame: CGRect(x: 268, y: 290, width: 20, height: 20))
+        }),
         Scenario(name: "overflow-to-later", build: { _ in card() }, configure: { m in
             m.transient = .overflow(taskID: Fixtures.later[0].id, title: "議事録を整える", client: nil)
         }),
