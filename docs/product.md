@@ -22,7 +22,7 @@ Polarisは「今日いちばん大事なこと」を1つ、常に最前面の小
 
 - `Day`: `date`（YYYY-MM-DD, ローカル）, `mode`, `northStar`（1文、空可）, `now`（最大3件・順序あり、先頭が本命）, `done`（今日完了したもの）, `note`（任意の短文）
 - `Mode`: `id`, `label`（例: 仕事の日 / 読書の日 / 休む日）, `symbol`（SF Symbol名）, `tint`（デザイントークン名）, `avoidApps`（bundle ID の配列。前面に来たら寄り道とみなす）
-- `Task`: `id`(UUID), `title`, `createdAt`, `completedAt?`, `source`（`user` | `mcp:<client名>`）
+- `Task`: `id`(UUID), `title`, `createdAt`, `completedAt?`, `source`（`user` | `mcp:<client名>`）, `dueDate?`（期限。`YYYY-MM-DD` のローカル暦日）
 - `later`: 日をまたいで残る「あとで」リスト（上限なし、UIでは件数のみ表示、展開時だけ中身が見える）
 - `banner`: MCPから送られた一時メッセージ（`text`, `from`, `expiresAt`）。1件のみ保持
 - `history`: 過去の `Day`（直近90日）
@@ -37,6 +37,7 @@ Polarisは「今日いちばん大事なこと」を1つ、常に最前面の小
 - 本命（`now[0]`）を完了したら、次が繰り上がる
 - 日付が変わって最初に起動・操作したとき、前日を `history` に移し、未完了の `now` は `later` の先頭に戻す。モードは既定モードに戻す。UIは「朝の支度」シートを出す（モード選択→北極星を1文→`later` から最大3件を選ぶ）
 - 北極星は `Day.star`（`NorthStar`: `id`, `text`, `createdAt`, `activatedAt`, `endedAt`, `outcome`）で持つ。今日に出るのは1つだけで、ほかは `starQueue`（控え、順番つき、追加は20件まで）に置く。終えたもの（`achieved` 達成 / `dropped` 手放した）は `starLog` に最大500件残す。互換のため `northStar` 文字列も書き、キーが無い古い状態は文字列から移行する
+- 北極星には期限 `dueDate?`（`YYYY-MM-DD`）と、控えにあるときだけ予約 `startsAt?`（日時）を付けられる。予約の時刻が来た控えはアプリが今日の北極星に上げ、今日の北極星は控えの先頭へ戻す（時刻が早いものから1つずつ）。達成・手放したときの繰り上げは、まだ時刻が来ていない予約を飛ばす。手で「これにする」を選んだら予約は消す
 - 北極星を達成・手放すと、控えの先頭が今日に上がる。今日の北極星を空にすると控えの先頭へ戻す。今日の北極星が無いときに控えと同じ文面を書いたら、新しく作らず控えのものを出す（今日の北極星があるときの書き換えは、その文面の編集）。日付が変わったら、終えていない北極星は履歴に残しつつ控えの先頭へ戻す
 - 寄り道検知: 前面アプリが現在モードの `avoidApps` に含まれたら、付箋が控えめに主張して北極星を示す（例:「今日は読書の日。戻る？」）。ブロックはしない。同じアプリで連続して出すのは5分に1回まで
 
@@ -61,12 +62,14 @@ Polarisは「今日いちばん大事なこと」を1つ、常に最前面の小
   - `polaris_get_today` — 今日の状態（モード・北極星・now・done・later件数・banner）
   - `polaris_set_north_star(text)`
   - `polaris_set_mode(mode_id)` / `polaris_list_modes`
-  - `polaris_add_task(title, to: "now"|"later", position?)` — nowが満杯なら later に入り、その旨を返す
+  - `polaris_add_task(title, to: "now"|"later", position?, dueDate?)` — nowが満杯なら later に入り、その旨を返す
+  - `polaris_update_task(id, title?, dueDate?)` — キーが無ければ据え置き、`dueDate: null` で期限を外す
   - `polaris_complete_task(id)` / `polaris_move_task(id, to, position?)` / `polaris_remove_task(id)`
   - `polaris_list_later`
   - `polaris_nudge(text, ttl_minutes?)` — 付箋に一時メッセージを出す（例: エージェントが「PR終わったよ、本命に戻ろう」）
   - `polaris_get_history(days?)`
-  - `polaris_list_north_stars` / `polaris_add_north_star(text, position?)` / `polaris_complete_north_star(outcome?)` / `polaris_switch_north_star(id)` / `polaris_remove_north_star(id)` / `polaris_get_north_star_log(limit?)` — 北極星の控えとログ
+  - `polaris_update_north_star(id, text?, dueDate?, startsAt?)` — 期限と予約を決める。キーが無ければ据え置き、null で外す。予約は控えの北極星だけ
+  - `polaris_list_north_stars` / `polaris_add_north_star(text, position?, dueDate?, startsAt?)` / `polaris_complete_north_star(outcome?)` / `polaris_switch_north_star(id)` / `polaris_remove_north_star(id)` / `polaris_get_north_star_log(limit?)` — 北極星の控えとログ
 - ツールの説明文には「ユーザーの集中を守るための道具なので、`now` を勝手に入れ替えない。追加は `later` を既定にする」旨を書く
 
 ## 構成

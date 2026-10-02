@@ -8,11 +8,28 @@ enum Copy {
     /// 押せない場所（メニューバー・寄り道表示・控えの窓）で使う。
     static func modeMenu(_ label: String) -> String { "モード、\(label)。押すと切り替える" }
     static let northStarEmptyHint = "押すと今日の北極星を書ける"
+    static let settingsDisplay = "表示"
+    static let settingsOpacity = "付箋の濃さ"
+    static let settingsOpacityDetail = "閉じているときだけ。開くと濃くなる"
+    static let settingsCelebrate = "達成したときの演出"
+    static let settingsCelebrateDetail = "北極星を達成すると、星が弾ける"
+    static let settingsSound = "演出の音"
+    static let settingsShortcuts = "ショートカット"
+    static func shortcutConflict(_ key: String) -> String { "\(key) はほかのアプリが使っている。別のキーを選んで。" }
+    static let settingsStartup = "起動"
+    static let settingsOpenAtLogin = "Mac にログインしたら Polaris を開く"
+    static let settingsMCP = "AI との連携（MCP）"
+    static let settingsMCPDetail = "Claude Code などから、北極星やタスクを読み書きできるようになる。"
+    static let settingsCopy = "コマンドをコピー"
+    static let settingsCopied = "コピーした"
+    static let settingsOpen = "設定を開く"
+    static func starSurfaced(_ title: String) -> String { "「\(title)」の時間になった" }
+    static let dueMenu = "期限"
+    static let dueClear = "期限を外す"
     static let panelToggle = "付箋の開閉"
     static let northStarNone = "北極星は未設定"
     static let startMorning = "朝の支度を始める"
-    static let addLead = "本命を追加する"
-    static let add = "＋ 追加"
+    static let add = "＋ タスクを追加"
     static let addPlaceholder = "やることを1行で"
     static func later(_ n: Int) -> String { "あとで \(n)" }
     static let laterFullSuffix = "・いまは満杯"
@@ -102,7 +119,7 @@ enum Copy {
     static let starsQueueFull = "控えは\(TextRules.starQueueMax)件まで。振り返りの窓で減らしてから入れて。"
     static let starsWindowMenu = "北極星の控えと振り返り…"
     static let starsWindowTitle = "北極星"
-    static let starsToday = "今日"
+    static let starsToday = "今日の北極星"
     static let starsQueue = "控え"
     static let starsLog = "これまで"
     static let starsLogEmpty = "終えた北極星はまだない。達成するとここに残る。"
@@ -110,10 +127,21 @@ enum Copy {
     static let starsQueueAdd = "控えに入れる"
     static let starsMoveUp = "上へ"
     static let starsMoveDown = "下へ"
+    static let starsDue = "期限"
+    static let starsDueNone = "決めていない"
+    static let starsDueSet = "決める"
+    static let starsDueClear = "期限を外す"
+    static let starsStart = "今日の北極星にする日時"
+    static let starsStartDetail = "その時刻になったら、付箋の1段目に上がって知らせる"
+    static let starsStartClear = "予約を外す"
+    static let starsEditHint = "押すと期限と予約を決められる"
+    static func starsDelete(_ title: String) -> String { "「\(title)」を削除" }
+    static func starsLogMore(_ count: Int) -> String { "ほか\(count)件を見る" }
+    static let starsLogLess = "たたむ"
     static let starsReopen = "控えに戻す"
     static let starOutcomeAchieved = "達成"
     static let starOutcomeDropped = "手放した"
-    static let starsQueueHelp = "今日の北極星を達成すると、いちばん上が付箋に上がる。"
+    static let starsQueueHelp = "ドラッグで並べ替え。今日の北極星を達成すると、いちばん上が付箋に上がる。"
 
     // メニューバー
     static let hideNote = "付箋を隠す"

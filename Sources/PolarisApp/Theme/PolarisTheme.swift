@@ -5,6 +5,8 @@ import SwiftUI
 enum PolarisTheme {
     enum Palette {
         static let surface = dynamic(0xF4F5F6, 0x1D1E22)
+        /// 設定や控えの窓で、まとまりを1枚に載せる面。
+        static let raised = dynamic(0xFFFFFF, 0x26282D)
         static let ink = dynamic(0x1C1E22, 0xF1F1F3)
         static let ink2 = dynamic(0x4B5058, 0xAEB2BA)
         static let hairline = dynamic(NSColor(hex: 0x1C1E22, alpha: 0.10), NSColor(white: 1, alpha: 0.10))

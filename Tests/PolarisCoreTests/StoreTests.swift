@@ -666,4 +666,163 @@ final class StoreTests {
         #expect(state.pastStars.isEmpty)
         #expect(throws: PolarisError.self) { try subject.addNorthStar(text: "  ") }
     }
+
+    @Test func testDueDateAndStartsAtDecodeCompatAndOmitWhenNil() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "revision": 1,
+          "today": {
+            "date": "2026-06-01",
+            "mode": { "id": "work", "label": "仕事の日", "symbol": "briefcase", "tint": "slate", "avoidApps": [] },
+            "star": {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "text": "旧形式の星",
+              "createdAt": "2026-06-01T00:00:00Z",
+              "activatedAt": "2026-06-01T00:00:00Z"
+            },
+            "northStar": "旧形式の星",
+            "now": [{
+              "id": "00000000-0000-0000-0000-000000000002",
+              "title": "旧形式のタスク",
+              "createdAt": "2026-06-01T00:00:00Z",
+              "source": "user"
+            }],
+            "done": []
+          },
+          "later": [],
+          "history": []
+        }
+        """
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let state = try decoder.decode(State.self, from: Data(json.utf8))
+        #expect(state.schemaVersion == 1)
+        #expect(state.today.star?.dueDate == nil)
+        #expect(state.today.star?.startsAt == nil)
+        #expect(state.today.now.first?.dueDate == nil)
+
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.sortedKeys]
+        let encoded = try JSONSerialization.jsonObject(with: encoder.encode(state.today.star)) as? [String: Any]
+        #expect(encoded?["dueDate"] == nil)
+        #expect(encoded?["startsAt"] == nil)
+        let taskJSON = try JSONSerialization.jsonObject(with: encoder.encode(state.today.now.first)) as? [String: Any]
+        #expect(taskJSON?["dueDate"] == nil)
+    }
+
+    @Test func testInvalidDueDateThrows() throws {
+        let subject = store(at: try home(), date: epoch)
+        #expect(throws: PolarisError.self) { try subject.addNorthStar(text: "星", dueDate: "2026-13-01") }
+        #expect(throws: PolarisError.self) { try subject.addNorthStar(text: "星", dueDate: "2026-02-30") }
+        #expect(throws: PolarisError.self) { try subject.addNorthStar(text: "星", dueDate: "06-01-2026") }
+        #expect(throws: PolarisError.self) { try subject.addTask(title: "タスク", dueDate: "not-a-date") }
+        do {
+            _ = try subject.addNorthStar(text: "星", dueDate: "2026-02-30")
+            Issue.record("expected invalidDate")
+        } catch PolarisError.invalidDate {
+            // ok
+        }
+        #expect(try DueDate.checked("2026-06-01") == "2026-06-01")
+        #expect(try DueDate.checked(nil) == nil)
+    }
+
+    @Test func testSetNorthStarDueAndStart() throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setNorthStar("今日")
+        let todayID = try #require(try subject.read().today.star?.id)
+        let queued = try subject.addNorthStar(text: "控え")
+
+        let due = try subject.setNorthStarDue(id: todayID, dueDate: "2026-06-10")
+        #expect(due.today.star?.dueDate == "2026-06-10")
+        let cleared = try subject.setNorthStarDue(id: todayID, dueDate: nil)
+        #expect(cleared.today.star?.dueDate == nil)
+
+        let queuedDue = try subject.setNorthStarDue(id: queued.id, dueDate: "2026-06-20")
+        #expect(queuedDue.queuedStars.first?.dueDate == "2026-06-20")
+
+        let start = epoch.addingTimeInterval(3600)
+        let reserved = try subject.setNorthStarStart(id: queued.id, startsAt: start)
+        #expect(reserved.queuedStars.first?.startsAt == start)
+        do {
+            _ = try subject.setNorthStarStart(id: todayID, startsAt: start)
+            Issue.record("expected northStarNotQueued")
+        } catch PolarisError.northStarNotQueued {
+            // ok
+        }
+        let manual = try subject.setNorthStarStart(id: queued.id, startsAt: nil)
+        #expect(manual.queuedStars.first?.startsAt == nil)
+    }
+
+    @Test func testSurfaceScheduledStarCases() throws {
+        let directory = try home()
+        let subject = store(at: directory, date: epoch)
+        _ = try subject.setNorthStar("いまの星")
+        let early = try subject.addNorthStar(text: "早い予約", startsAt: epoch.addingTimeInterval(-60))
+        let late = try subject.addNorthStar(text: "遅い予約", startsAt: epoch.addingTimeInterval(3600))
+        _ = try subject.addNorthStar(text: "手動")
+
+        let beforeNone = try subject.read()
+        let none = try subject.surfaceScheduledStar(now: epoch.addingTimeInterval(-120))
+        #expect(none.surfaced == nil)
+        #expect(none.state.revision == beforeNone.revision)
+        #expect(none.state.today.star?.text == "いまの星")
+
+        let before = try subject.read()
+        let withToday = try subject.surfaceScheduledStar(now: epoch)
+        #expect(withToday.surfaced?.id == early.id)
+        #expect(withToday.state.today.star?.id == early.id)
+        #expect(withToday.state.today.star?.startsAt == nil)
+        #expect(withToday.state.today.star?.activatedAt == epoch)
+        #expect(withToday.state.queuedStars.first?.text == "いまの星")
+        #expect(withToday.state.queuedStars.contains(where: { $0.id == late.id }))
+        #expect(withToday.state.revision == before.revision + 1)
+
+        let emptyHome = try home()
+        let empty = store(at: emptyHome, date: epoch)
+        let idle = try empty.surfaceScheduledStar(now: epoch)
+        #expect(idle.surfaced == nil)
+        #expect(idle.state.today.star == nil)
+
+        let noActiveHome = try home()
+        let noActive = store(at: noActiveHome, date: epoch)
+        let first = try noActive.addNorthStar(text: "二番目候補", startsAt: epoch.addingTimeInterval(-10))
+        let sooner = try noActive.addNorthStar(text: "一番早い", startsAt: epoch.addingTimeInterval(-30))
+        _ = try noActive.addNorthStar(text: "未来", startsAt: epoch.addingTimeInterval(100))
+        let surfaced = try noActive.surfaceScheduledStar(now: epoch)
+        #expect(surfaced.surfaced?.id == sooner.id)
+        #expect(surfaced.state.today.star?.id == sooner.id)
+        #expect(surfaced.state.queuedStars.map(\.id).contains(first.id))
+    }
+
+    @Test func testCompleteNorthStarSkipsFutureReservation() throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setNorthStar("いま")
+        let future = try subject.addNorthStar(text: "未来予約", startsAt: epoch.addingTimeInterval(86400))
+        let ready = try subject.addNorthStar(text: "繰り上げ候補", startsAt: epoch.addingTimeInterval(-1))
+        let result = try subject.completeNorthStar()
+        #expect(result.next?.id == ready.id)
+        #expect(result.state.today.star?.id == ready.id)
+        #expect(result.state.today.star?.startsAt == nil)
+        #expect(result.state.queuedStars.map(\.id) == [future.id])
+    }
+
+    @Test func testActivateNorthStarClearsStartsAt() throws {
+        let subject = store(at: try home(), date: epoch)
+        let reserved = try subject.addNorthStar(text: "予約", startsAt: epoch.addingTimeInterval(60))
+        let state = try subject.activateNorthStar(id: reserved.id)
+        #expect(state.today.star?.id == reserved.id)
+        #expect(state.today.star?.startsAt == nil)
+    }
+
+    @Test func testSetTaskDueOnNowAndLater() throws {
+        let subject = store(at: try home(), date: epoch)
+        let now = try subject.addTask(title: "いま", to: .now)
+        let later = try subject.addTask(title: "あとで", to: .later)
+        let due = try subject.setTaskDue(id: now.task.id, dueDate: "2026-06-05")
+        #expect(due.today.now.first?.dueDate == "2026-06-05")
+        let laterDue = try subject.setTaskDue(id: later.task.id, dueDate: "2026-06-06")
+        #expect(laterDue.later.first?.dueDate == "2026-06-06")
+        let cleared = try subject.setTaskDue(id: now.task.id, dueDate: nil)
+        #expect(cleared.today.now.first?.dueDate == nil)
+        #expect(throws: PolarisError.self) { try subject.setTaskDue(id: UUID(), dueDate: "2026-06-01") }
+    }
 }

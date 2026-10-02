@@ -16,6 +16,9 @@ final class NotePanelController {
     private var previousApp: NSRunningApplication?
     private var displayUUID: String?
     private var observers: [NSObjectProtocol] = []
+    /// mouseExited は窓の伸び縮みやメニューの後に来ないことがある。カーソルの位置を直接見て、取りこぼしを拾う。
+    private var leaveWatch: Timer?
+    private var outsideSince: Date?
 
     /// ⌃⌥H などで隠している。
     private(set) var isHidden = false
@@ -64,6 +67,10 @@ final class NotePanelController {
                 self.model.finishEditingOnResign()
             }
         })
+        // .default の run loop mode だけで回すので、メニューを開いている間（eventTracking）は止まる。
+        leaveWatch = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.watchLeave() }
+        }
         observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.placeAtCorner(animated: false) }
         })
@@ -71,8 +78,23 @@ final class NotePanelController {
 
     /// 通知の購読をやめる。作り直すときに呼ぶ。
     func teardown() {
+        leaveWatch?.invalidate()
+        leaveWatch = nil
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
+    }
+
+    private func watchLeave() {
+        guard panel.isVisible, model.expanded, !panel.frame.contains(NSEvent.mouseLocation) else {
+            outsideSince = nil
+            return
+        }
+        let since = outsideSince ?? Date()
+        outsideSince = since
+        if Date().timeIntervalSince(since) >= PolarisTheme.Motion.leaveDelay {
+            outsideSince = nil
+            model.collapseIfLeft()
+        }
     }
 
     // MARK: 表示
@@ -284,6 +306,9 @@ struct NotePanelRoot: View {
             if !model.corner.isTop { Spacer(minLength: 0) }
             NoteCard()
                 .fixedSize(horizontal: false, vertical: true)
+                // 濃さの設定は閉じているときだけ効かせる。開いたら読みやすさを優先して 1 にする。
+                .opacity(model.expanded ? 1 : model.noteOpacity)
+                .animation(PolarisTheme.Motion.expand(model.theme.reduceMotion), value: model.expanded)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { onHeight($0) }
                 .gesture(DragGesture(minimumDistance: 3)
                     .updating($holding) { _, state, _ in state = true }

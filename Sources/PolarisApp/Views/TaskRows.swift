@@ -23,6 +23,10 @@ struct TaskRow: View {
             dot
             title
             Spacer(minLength: 0)
+            if !renaming, let due = task.dueDate.flatMap({ DueDates.taskLabel($0, now: model.now) }) {
+                MetaText(text: due.text, color: due.overdue ? PolarisTheme.Palette.danger : nil)
+                    .fixedSize()
+            }
             if model.expanded { trailing }
         }
         .frame(height: PolarisTheme.Metrics.rowHeight)
@@ -47,7 +51,8 @@ struct TaskRow: View {
         .gesture(reorderGesture, including: model.expanded && !renaming ? .all : .subviews)
         .contextMenu { if !renaming { RowMenuItems(task: task, index: index) } }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isLead ? "本命、\(task.title)" : "いまの\(index + 1)件目、\(task.title)")
+        .accessibilityLabel((isLead ? "本命、\(task.title)" : "いまの\(index + 1)件目、\(task.title)")
+                            + (task.dueDate.flatMap { DueDates.taskLabel($0, now: model.now) }.map { "、\($0.text)" } ?? ""))
         .accessibilityValue(completing ? "完了" : "")
         // 点のボタンは combine で行に吸われるので、行そのものの既定操作（AXPress）を完了にする。
         .accessibilityAddTraits(.isButton)
@@ -167,6 +172,7 @@ struct RowMenuItems: View {
         if index > 0 { Button(Copy.makeLead) { model.makeLead(task.id) } }
         Button(Copy.sendLater) { model.sendLater(task.id) }
         Button(Copy.rename) { model.beginEditing(.rename(task.id)) }
+        DueMenu(current: task.dueDate) { model.setTaskDue(task.id, $0) }
         Divider()
         Button(Copy.delete, role: .destructive) { model.delete(task.id) }
     }
@@ -177,5 +183,23 @@ private struct LeadAction: ViewModifier {
     var action: () -> Void
     func body(content: Content) -> some View {
         if isLead { content } else { content.accessibilityAction(named: "本命にする", action) }
+    }
+}
+
+/// 期限のメニュー。よく使う日だけを並べる。細かい日付は MCP からも決められる。
+struct DueMenu: View {
+    var current: String?
+    var set: (String?) -> Void
+
+    var body: some View {
+        Menu(current.flatMap { DueDates.taskLabel($0) }.map { "\(Copy.dueMenu)（\($0.text)）" } ?? Copy.dueMenu) {
+            ForEach(DueDates.presets(), id: \.label) { preset in
+                Button(preset.label) { set(preset.value) }
+            }
+            if current != nil {
+                Divider()
+                Button(Copy.dueClear) { set(nil) }
+            }
+        }
     }
 }

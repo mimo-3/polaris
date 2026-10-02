@@ -30,6 +30,13 @@ final class NoteModel {
     var dayClosedDate: String?
     var hidden = false
 
+    // MARK: 表示の設定（UserDefaults に残す）
+    /// 閉じているときの付箋の濃さ。開いているあいだは常に 1。
+    var noteOpacity: Double = Prefs.double("noteOpacity", default: 1) { didSet { Prefs.set(noteOpacity, "noteOpacity") } }
+    /// 北極星を達成したときの演出。
+    var celebrates: Bool = Prefs.bool("celebrates", default: true) { didSet { Prefs.set(celebrates, "celebrates") } }
+    var celebrationSound: Bool = Prefs.bool("celebrationSound", default: true) { didSet { Prefs.set(celebrationSound, "celebrationSound") } }
+
     // MARK: 完了の動き
     var completing: UUID?
     var completionPhase = 0 // 0: 点 / 1: ✓ / 2: 取り消し線まで
@@ -54,6 +61,12 @@ final class NoteModel {
     @ObservationIgnored var onDayChanged: () -> Void = {}
     @ObservationIgnored var requestMorning: () -> Void = {}
     @ObservationIgnored var onStateApplied: () -> Void = {}
+    /// 北極星を達成したときに、付箋の外へ演出を出す。
+    @ObservationIgnored var onCelebrate: () -> Void = {}
+    /// 予約の北極星が上がったとき、隠していても付箋を出す。
+    @ObservationIgnored var onSurface: () -> Void = {}
+    /// 予約の北極星を上げている途中。apply から何度も呼ばれても1回だけ書く。
+    @ObservationIgnored var surfacing = false
     @ObservationIgnored var announce: (String, NSAccessibilityPriorityLevel) -> Void = { _, _ in }
 
     @ObservationIgnored private var hoverTimer: _Concurrency.Task<Void, Never>?
@@ -149,6 +162,8 @@ final class NoteModel {
         let newBanner = next.banner != nil && next.banner != state.banner ? next.banner : nil
         let bannerChanged = next.banner != state.banner
         withAnimation(animation) { state = next }
+        // 起動・日付の替わり目・MCP の書き込みで、もう時刻の来た予約があれば待たずに上げる（朝の支度より先に）。
+        surfaceScheduledStars()
         if bannerChanged { scheduleBannerExpiry() }
         if let newBanner { announce("\(newBanner.text)。\(Copy.from(Copy.clientName(newBanner.from)))", .low) }
         if loadFailed {
@@ -224,6 +239,7 @@ final class NoteModel {
         case .overflow(_, let title, _): announce(Copy.overflow(title), .medium)
         case .modeChanged(let mode): announce(Copy.modeChanged(mode.label), .low)
         case .starEnded(_, let title, let next, let achieved): announce(Copy.starEndedSpoken(title, next: next, achieved: achieved), .medium)
+        case .starSurfaced(let title): announce(Copy.starSurfaced(title), .high)
         case .error(let message): announce(message, .high)
         }
     }
@@ -284,12 +300,23 @@ final class NoteModel {
     func pointerExited() {
         hoverTimer?.cancel()
         pointer = nil
-        guard hoverOpen else { return }
+        guard expanded else { return }
         hoverTimer = _Concurrency.Task { @MainActor [weak self] in
             try? await _Concurrency.Task.sleep(for: .seconds(PolarisTheme.Motion.leaveDelay))
             guard let self, !_Concurrency.Task.isCancelled else { return }
-            self.collapseHover()
+            self.collapseIfLeft()
         }
+    }
+
+    /// カーソルが外れたら、クリックで開いたときも含めて必ず畳む。
+    /// 残すのは、書いている途中・キーボードで操作中・掴んでいる最中だけ。
+    func collapseIfLeft() {
+        guard expanded, editing == nil, keyboardIndex == nil, !dragging else { return }
+        hoverTimer?.cancel()
+        // 入れ替えの途中なら、声の行の「入れ替える行を選ぶ」も一緒に下ろす。
+        cancelSwap()
+        unpinAll()
+        if isKey { resignKey() }
     }
 
     func collapseHover() {
@@ -337,4 +364,15 @@ final class NoteModel {
         UserDefaults.standard.set(dayClosedDate, forKey: "dayClosedDate")
         unpinAll()
     }
+}
+
+/// 表示の設定の読み書き。キーが無いときは既定値。
+enum Prefs {
+    static func double(_ key: String, default value: Double) -> Double {
+        UserDefaults.standard.object(forKey: key) as? Double ?? value
+    }
+    static func bool(_ key: String, default value: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? value
+    }
+    static func set(_ value: Any, _ key: String) { UserDefaults.standard.set(value, forKey: key) }
 }
