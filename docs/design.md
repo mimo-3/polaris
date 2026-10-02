@@ -224,17 +224,17 @@ t=320    ○→●  光の点が matchedGeometry で次の行へ移る。文字�
 ### 2-8. クリック透過中（既定）
 
 ```
-            ┌──────────────────────────────────────┐
- ┌──┐       │  決済APIの移行を今日中に本番へ出す     │
- │⠿⠿│ つまみ │  ●  レビュー指摘を直す                │
- └──┘       └──────────────────────────────────────┘
+┌──────────────────────────────────────┐
+│ ⠿ 決済APIの移行を今日中に本番へ出す     │ ⠿ = つまみ（縁の内側）
+│ ⠿ ●  レビュー指摘を直す                │
+└──────────────────────────────────────┘
 ```
 
 - 閉じた付箋は `ignoresMouseEvents = true` で、後ろの窓をそのまま触れる。ホバーしても展開しない。設定の「閉じた付箋のクリックを通す」と ⌃⌥T で切り替える（既定はオン）
-- 付箋の画面中央側の脇（右の隅なら左、左の隅なら右。間隔 6）に、14×44 のつまみを出す。縦位置は閉じたときの付箋の真ん中で、開いても動かさない。カプセルに `surface` と hairline、2列×3段の点（ink2）。ホバーで `raised` と ink、カーソルは openHand
+- 付箋の画面中央側の縁の内側（右の隅なら左端、左の隅なら右端から4）に、10×44 のつまみを重ねる。左右の余白20に収まり、文字まで6空く。クリックを通すかは窓ごとにしか決められないので、つまみは付箋より1段上の小さな窓にする。縦位置は閉じたときの付箋の真ん中で、開いても動かさない。角丸の帯に `hoverFill`、2列×3段の点（ink2）。ホバーで `pressFill` と ink、カーソルは openHand。Increase Contrast では縁に `HighContrast.border`
 - つまみはホバーでは開かない。押すと開き（開いていれば畳む）、3pt 以上ドラッグすると付箋ごと動かし、離すと付箋と同じように隅へスナップする
-- つまみにホバーすると、さらに中央側に吹き出し「クリックで開く・ドラッグで動かす」（開いていれば「クリックで閉じる・…」）。吹き出しはクリックを通す別の窓に出す
-- つまみで開いているあいだは普通の付箋と同じに触れる。カーソルが付箋とつまみの外へ出たら畳み、透過に戻る
+- つまみにホバーすると、付箋の外の中央側に吹き出し「クリックで開く・ドラッグで動かす」（開いていれば「クリックで閉じる・…」）。吹き出しはクリックを通す別の窓に出す
+- つまみで開いているあいだは普通の付箋と同じに触れる。カーソルが付箋の外へ出たら畳み、透過に戻る
 - ⌥ を押しているあいだも触れる（判定方法は6章）
 
 ### 2-9. 4件目が「あとで」に送られたとき
@@ -405,7 +405,7 @@ static func northStarFont(size: CGFloat = 20) -> Font {
 | `rowHit` | 28 |
 | `laterRow` / `laterMaxRows` | 32 / 5 |
 | `collapsedDayClosedHeight` | 44 |
-| `handleWidth` / `handleHeight` / `handleGap` | 14 / 44 / 6 |
+| `handleWidth` / `handleHeight` / `handleInset` | 10 / 44 / 4 |
 
 ### 3-6. 素材・影 `PolarisTheme.Material`
 
@@ -606,7 +606,7 @@ Carbon `RegisterEventHotKey` で登録する。設定から変えられる。
 
 ### Increase Contrast / Differentiate Without Color / Reduce Transparency / Reduce Motion
 
-- Increase Contrast: 素材を外し `surface` を100%にする。`ink2` と `star` を `HighContrast` に差し替え、外周に `HighContrast.border` を付け、光の点に1pt の ink リングを重ねる。つまみの縁も `HighContrast.border` にする
+- Increase Contrast: 素材を外し `surface` を100%にする。`ink2` と `star` を `HighContrast` に差し替え、外周に `HighContrast.border` を付け、光の点に1pt の ink リングを重ねる。つまみの縁にも `HighContrast.border` を付ける
 - Differentiate Without Color: 本命の点の左に `▸`（meta, ink）を足す
 - Reduce Transparency: 素材を外す
 - Reduce Motion: 4章の表のとおり
