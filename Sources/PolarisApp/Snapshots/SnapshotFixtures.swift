@@ -62,8 +62,11 @@ enum Fixtures {
 
     static func starID(_ n: Int) -> UUID { UUID(uuidString: String(format: "00000000-0000-0000-0001-%012d", n))! }
 
-    static let queuedStars = [NorthStar(id: starID(1), text: "CS成長PJのキックオフを終える", createdAt: created),
-                              NorthStar(id: starID(2), text: "採用の評価基準を見直す", createdAt: created)]
+    static let queuedStars = [NorthStar(id: starID(1), text: "CS成長PJのキックオフを終える", createdAt: created,
+                                        dueDate: DueDates.string(Date().addingTimeInterval(3 * 86400))),
+                              NorthStar(id: starID(2), text: "採用の評価基準を見直す", createdAt: created,
+                                        startsAt: StarDates.nextMorning(after: Date())),
+                              NorthStar(id: starID(5), text: "四半期の振り返りを書く", createdAt: created)]
 
     static let pastStars: [NorthStar] = {
         let day: TimeInterval = 86400
@@ -78,6 +81,7 @@ enum Fixtures {
         var s = state
         s.starQueue = promoted ? Array(queuedStars.dropFirst()) : queuedStars
         s.starLog = pastStars
+        if !promoted { s.today.star?.dueDate = DueDates.string(Date().addingTimeInterval(4 * 86400)) }
         return s
     }
 }

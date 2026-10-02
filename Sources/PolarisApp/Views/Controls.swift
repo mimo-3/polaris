@@ -242,3 +242,58 @@ struct Hairline: View {
         Rectangle().fill(PolarisTheme.Palette.hairline).frame(height: PolarisTheme.Material.hairlineWidth)
     }
 }
+
+/// 窓の中の1まとまり。見出しを面の外に置き、中身は白い面に載せる。行の区切りは中身の側で Hairline を引く。
+struct GroupCard<Content: View>: View {
+    var title: String
+    var footnote: String? = nil
+    @ViewBuilder var content: Content
+    @Environment(\.polaris) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: PolarisTheme.Space.s) {
+            Text(title)
+                .font(PolarisTheme.Typography.button)
+                .foregroundStyle(theme.ink)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.leading, PolarisTheme.Space.xs)
+            VStack(alignment: .leading, spacing: 0) { content }
+                .padding(.horizontal, PolarisTheme.Space.l)
+                .padding(.vertical, PolarisTheme.Space.xs)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    RoundedRectangle(cornerRadius: PolarisTheme.Radius.choice, style: .continuous)
+                        .fill(PolarisTheme.Palette.raised)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: PolarisTheme.Radius.choice, style: .continuous)
+                                .strokeBorder(PolarisTheme.Palette.hairline)
+                        }
+                }
+            if let footnote {
+                MetaText(text: footnote).padding(.leading, PolarisTheme.Space.xs)
+            }
+        }
+    }
+}
+
+/// GroupCard の中の1行。左に名前（と補足）、右に操作。
+struct CardRow<Trailing: View>: View {
+    var title: String
+    var detail: String? = nil
+    @ViewBuilder var trailing: Trailing
+    @Environment(\.polaris) private var theme
+
+    var body: some View {
+        HStack(alignment: .center, spacing: PolarisTheme.Space.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(PolarisTheme.Typography.task).foregroundStyle(theme.ink)
+                if let detail { MetaText(text: detail) }
+            }
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 0)
+            trailing
+        }
+        .padding(.vertical, PolarisTheme.Space.m)
+        .frame(minHeight: 44)
+    }
+}

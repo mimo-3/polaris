@@ -43,20 +43,70 @@ public struct PolarisStore: Sendable {
             }
         }.state
     }
-    public func addNorthStar(text: String, position: Int? = nil) throws -> NorthStar {
+    public func addNorthStar(text: String, position: Int? = nil, dueDate: String? = nil, startsAt: Date? = nil) throws -> NorthStar {
         let text = try TextRules.checked(text, max: TextRules.northStarMax, label: "北極星")
+        let dueDate = try DueDate.checked(dueDate)
         guard !text.isEmpty else { throw PolarisError.invalidInput("北極星が空です") }
         guard position == nil || position! >= 0 else { throw PolarisError.invalidInput("positionは0以上です") }
         return try transaction { state in
             guard state.queuedStars.count < TextRules.starQueueMax else {
                 throw PolarisError.invalidInput("控えは\(TextRules.starQueueMax)件までです")
             }
-            let star = NorthStar(text: text, createdAt: clock())
+            let star = NorthStar(text: text, createdAt: clock(), dueDate: dueDate, startsAt: startsAt)
             var queue = state.queuedStars
             queue.insert(star, at: min(position ?? queue.count, queue.count))
             state.starQueue = queue
             return star
         }.value
+    }
+    @discardableResult public func setNorthStarDue(id: UUID, dueDate: String?) throws -> State {
+        let dueDate = try DueDate.checked(dueDate)
+        return try transaction { state in
+            if var star = state.today.star, star.id == id {
+                star.dueDate = dueDate
+                state.today.star = star
+            } else {
+                var queue = state.queuedStars
+                guard let index = queue.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+                queue[index].dueDate = dueDate
+                state.starQueue = queue
+            }
+        }.state
+    }
+    /// 控えの星だけに予約を付ける。今日の北極星を指定したら northStarNotQueued。
+    @discardableResult public func setNorthStarStart(id: UUID, startsAt: Date?) throws -> State {
+        try transaction { state in
+            if state.today.star?.id == id { throw PolarisError.northStarNotQueued }
+            var queue = state.queuedStars
+            guard let index = queue.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+            queue[index].startsAt = startsAt
+            state.starQueue = queue
+        }.state
+    }
+    /// 控えのうち `startsAt <= now` のものを、startsAt が一番早い順に1つ今日の北極星にする。
+    public func surfaceScheduledStar(now: Date = Date()) throws -> (state: State, surfaced: NorthStar?) {
+        let result = try transaction { state -> NorthStar? in
+            let due = state.queuedStars.enumerated()
+                .compactMap { index, star -> (Int, NorthStar, Date)? in
+                    guard let startsAt = star.startsAt, startsAt <= now else { return nil }
+                    return (index, star, startsAt)
+                }
+                .sorted {
+                    if $0.2 != $1.2 { return $0.2 < $1.2 }
+                    return $0.0 < $1.0
+                }
+            guard let target = due.first else { return nil }
+            var queue = state.queuedStars
+            guard let index = queue.firstIndex(where: { $0.id == target.1.id }) else { return nil }
+            var chosen = queue.remove(at: index)
+            chosen.startsAt = nil
+            chosen.activatedAt = now
+            if let current = state.today.star { queue.insert(current, at: 0) }
+            state.today.star = chosen
+            state.starQueue = queue
+            return chosen
+        }
+        return (result.state, result.value)
     }
     public func completeNorthStar(outcome: NorthStarOutcome = .achieved) throws -> (state: State, completed: NorthStar, next: NorthStar?) {
         let result = try transaction { state -> (NorthStar, NorthStar?) in
@@ -70,8 +120,10 @@ public struct PolarisStore: Sendable {
             state.today.star = nil
             var next: NorthStar?
             var queue = state.queuedStars
-            if !queue.isEmpty {
-                var promoted = queue.removeFirst()
+            // 未来に予約された星は飛ばし、予約なしまたは開始時刻を過ぎた最初の星を繰り上げる。
+            if let index = queue.firstIndex(where: { $0.startsAt.map { $0 <= now } ?? true }) {
+                var promoted = queue.remove(at: index)
+                promoted.startsAt = nil
                 if promoted.activatedAt == nil { promoted.activatedAt = now }
                 state.today.star = promoted
                 next = promoted
@@ -86,6 +138,7 @@ public struct PolarisStore: Sendable {
             var queue = state.queuedStars
             guard let index = queue.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
             var chosen = queue.remove(at: index)
+            chosen.startsAt = nil
             if chosen.activatedAt == nil { chosen.activatedAt = clock() }
             if let current = state.today.star { queue.insert(current, at: 0) }
             state.today.star = chosen
@@ -206,12 +259,23 @@ public struct PolarisStore: Sendable {
         let text = try text.map { try TextRules.checked($0, max: TextRules.noteMax, label: "メモ") }
         return try transaction { $0.today.note = text }.state
     }
-    public func addTask(title: String, to: TaskDestination = .later, position: Int? = nil, source: String = "user") throws -> Placement {
+    public func addTask(title: String, to: TaskDestination = .later, position: Int? = nil, source: String = "user",
+                        dueDate: String? = nil) throws -> Placement {
         let title = try checkedTitle(title)
+        let dueDate = try DueDate.checked(dueDate)
         try checkActor(source)
         return try transaction { state in
-            try place(Task(title: title, createdAt: clock(), source: source), to: to, position: position, actor: source, in: &state)
+            try place(Task(title: title, createdAt: clock(), source: source, dueDate: dueDate),
+                      to: to, position: position, actor: source, in: &state)
         }.value
+    }
+    @discardableResult public func setTaskDue(id: UUID, dueDate: String?) throws -> State {
+        let dueDate = try DueDate.checked(dueDate)
+        return try transaction { state in
+            if let i = state.today.now.firstIndex(where: { $0.id == id }) { state.today.now[i].dueDate = dueDate }
+            else if let i = state.later.firstIndex(where: { $0.id == id }) { state.later[i].dueDate = dueDate }
+            else { throw PolarisError.taskNotFound }
+        }.state
     }
     @discardableResult public func completeTask(id: UUID) throws -> State {
         try transaction { state in

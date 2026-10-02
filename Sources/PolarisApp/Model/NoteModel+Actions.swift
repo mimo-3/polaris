@@ -19,7 +19,9 @@ extension NoteModel {
             let result = try store.completeNorthStar(outcome: achieved ? .achieved : .dropped)
             return (result.completed, result.next)
         }) { [weak self] completed, next in
-            self?.show(.starEnded(starID: completed.id, title: completed.text, next: next?.text, achieved: achieved))
+            guard let self else { return }
+            self.show(.starEnded(starID: completed.id, title: completed.text, next: next?.text, achieved: achieved))
+            if achieved && self.celebrates { self.onCelebrate() }
         }
     }
 
@@ -31,8 +33,37 @@ extension NoteModel {
     }
 
     func activateNorthStar(_ id: UUID) { run { try $0.activateNorthStar(id: id) } }
+    func setNorthStarDue(_ id: UUID, _ due: String?) { run { try $0.setNorthStarDue(id: id, dueDate: due) } }
+    func setNorthStarStart(_ id: UUID, _ date: Date?) { run { try $0.setNorthStarStart(id: id, startsAt: date) } }
+    func renameNorthStar(_ id: UUID, _ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        run { try $0.renameNorthStar(id: id, text: text) }
+    }
+    func setTaskDue(_ id: UUID, _ due: String?) { run { try $0.setTaskDue(id: id, dueDate: due) } }
+
+    /// 30秒ごとに呼ぶ。期限の「あと n日」を日付の替わり目で更新し、予約の時間が来た北極星を上げる。
+    func tick() {
+        let current = Date()
+        if !Calendar.current.isDate(current, inSameDayAs: now) { now = current }
+        surfaceScheduledStars()
+    }
+
+    /// 予約の日時になった控えを今日の北極星へ上げる。上がったら声の行と、付箋を前に出す合図で知らせる。
+    func surfaceScheduledStars() {
+        guard !surfacing, state.queuedStars.contains(where: { ($0.startsAt ?? .distantFuture) <= Date() }) else { return }
+        surfacing = true
+        run({ try $0.surfaceScheduledStar(now: Date()).surfaced }, then: { [weak self] star in
+            guard let self, let star else { return }
+            self.show(.starSurfaced(title: star.text))
+            self.rippleToken += 1
+            self.onSurface()
+        }, always: { [weak self] in self?.surfacing = false })
+    }
     func removeQueuedNorthStar(_ id: UUID) { run { try $0.removeNorthStar(id: id) } }
-    func moveQueuedNorthStar(_ id: UUID, to position: Int) { run { try $0.moveNorthStar(id: id, position: position) } }
+    func moveQueuedNorthStar(_ id: UUID, to position: Int, always: @escaping @MainActor () -> Void = {}) {
+        run({ try $0.moveNorthStar(id: id, position: position) }, always: always)
+    }
     func reopenNorthStar(_ id: UUID) { run { try $0.reopenNorthStar(id: id) } }
 
     /// 控えの末尾に足す。今日の北極星は変えない。
@@ -244,7 +275,7 @@ extension NoteModel {
     var voiceActionCount: Int {
         guard !clickThrough || optionPeek else { return 0 }
         switch voice {
-        case .mode, .transient(.error), .transient(.modeChanged): return 0
+        case .mode, .transient(.error), .transient(.modeChanged), .transient(.starSurfaced): return 0
         case .detour: return 2
         case .transient(.undo), .transient(.overflow), .transient(.starEnded), .banner: return 1
         }
@@ -258,7 +289,7 @@ extension NoteModel {
         case .transient(.starEnded): undoStarEnded()
         case .transient(.overflow): swapping == nil ? beginSwap() : cancelSwap()
         case .banner: dismissBanner()
-        case .mode, .transient(.error), .transient(.modeChanged): break
+        case .mode, .transient(.error), .transient(.modeChanged), .transient(.starSurfaced): break
         }
     }
 

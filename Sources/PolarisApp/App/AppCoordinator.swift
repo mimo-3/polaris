@@ -10,6 +10,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     private var morning: AuxPanelController!
     private var quickEdit: AuxPanelController!
     private var mini: AuxPanelController!
+    private let celebration = CelebrationController()
+    private var surfaceTimer: Timer?
     private var statusMenu: StatusMenu!
     private var detour: DetourMonitor!
     private var settingsWindow: NSWindow?
@@ -38,6 +40,20 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     }
 
     private func wireModel() {
+        model.onSurface = { [weak self] in
+            guard let self else { return }
+            // 隠していても、予約の時間になったら付箋を出す。
+            if self.note.isHidden { self.note.show() }
+        }
+        // 予約の北極星は分単位で決めるので、30秒ごとに見れば十分。
+        surfaceTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.model.tick() }
+        }
+        model.onCelebrate = { [weak self] in
+            guard let self, self.note.panel.isVisible else { return }
+            self.celebration.burst(from: self.note.panel.frame, reduceMotion: self.model.theme.reduceMotion,
+                                   sound: self.model.celebrationSound)
+        }
         model.requestMorning = { [weak self] in self?.showMorning(key: true) }
         model.onDayChanged = { [weak self] in
             guard let self else { return }
@@ -77,21 +93,26 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
 
     // MARK: 設定
 
+    private var settingsHeight: CGFloat { min(640, (NSScreen.main?.visibleFrame.height ?? 800) - 80) }
+
     func showSettings() {
         if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 480),
-                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            // 中身はスクロールするので、窓は画面に収まる高さで固定し、縦にだけ伸び縮みさせる。
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: SettingsView.width, height: settingsHeight),
+                                  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.title = "Polaris の設定"
             window.isReleasedWhenClosed = false
+            window.contentMinSize = NSSize(width: SettingsView.width, height: 360)
+            window.contentMaxSize = NSSize(width: SettingsView.width, height: .greatestFiniteMagnitude)
             settingsWindow = window
         }
         let view = SettingsView(conflicts: HotKeyCenter.shared.conflicts)
             .environment(model)
             .environment(\.polaris, model.theme)
-        // モードの編集で高さが変わるので、窓の大きさは中身に合わせる。
         let controller = NSHostingController(rootView: view)
-        controller.sizingOptions = .preferredContentSize
+        controller.sizingOptions = []
         settingsWindow?.contentViewController = controller
+        settingsWindow?.setContentSize(NSSize(width: SettingsView.width, height: settingsHeight))
         settingsWindow?.center()
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -101,17 +122,20 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
 
     func showStars() {
         if starsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 480),
-                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            // 中身はスクロールするので、窓は画面に収まる高さで固定し、縦にだけ伸び縮みさせる。
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: StarsView.width, height: settingsHeight),
+                                  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.title = Copy.starsWindowTitle
             window.isReleasedWhenClosed = false
+            window.contentMinSize = NSSize(width: StarsView.width, height: 360)
+            window.contentMaxSize = NSSize(width: StarsView.width, height: .greatestFiniteMagnitude)
             let view = StarsView()
                 .environment(model)
                 .environment(\.polaris, model.theme)
-            // 控えやログが増えると高さが変わるので、窓の大きさは中身に合わせる。
             let controller = NSHostingController(rootView: view)
-            controller.sizingOptions = .preferredContentSize
+            controller.sizingOptions = []
             window.contentViewController = controller
+            window.setContentSize(NSSize(width: StarsView.width, height: settingsHeight))
             window.center()
             starsWindow = window
         }

@@ -28,8 +28,12 @@ public struct Task: Codable, Sendable, Equatable, Identifiable {
     public var createdAt: Date
     public var completedAt: Date?
     public var source: String
-    public init(id: UUID = UUID(), title: String, createdAt: Date = Date(), completedAt: Date? = nil, source: String = "user") {
-        self.id = id; self.title = title; self.createdAt = createdAt; self.completedAt = completedAt; self.source = source
+    /// この日までに終えるべき期限（ローカル暦日 `yyyy-MM-dd`）。無ければ nil。
+    public var dueDate: String?
+    public init(id: UUID = UUID(), title: String, createdAt: Date = Date(), completedAt: Date? = nil,
+                source: String = "user", dueDate: String? = nil) {
+        self.id = id; self.title = title; self.createdAt = createdAt; self.completedAt = completedAt
+        self.source = source; self.dueDate = dueDate
     }
 }
 
@@ -44,11 +48,16 @@ public struct NorthStar: Codable, Sendable, Equatable, Identifiable {
     public var activatedAt: Date?
     public var endedAt: Date?
     public var outcome: NorthStarOutcome?
+    /// この日までに終えるべき期限（ローカル暦日 `yyyy-MM-dd`）。無ければ nil。
+    public var dueDate: String?
+    /// 控えの北極星が自動で今日の北極星に上がる日時。nil は手動。
+    public var startsAt: Date?
 
     public init(id: UUID = UUID(), text: String, createdAt: Date = Date(), activatedAt: Date? = nil,
-                endedAt: Date? = nil, outcome: NorthStarOutcome? = nil) {
+                endedAt: Date? = nil, outcome: NorthStarOutcome? = nil, dueDate: String? = nil, startsAt: Date? = nil) {
         self.id = id; self.text = text; self.createdAt = createdAt
         self.activatedAt = activatedAt; self.endedAt = endedAt; self.outcome = outcome
+        self.dueDate = dueDate; self.startsAt = startsAt
     }
 
     /// 旧形式の northStar 文字列から安定した id を作る。同じ date+text なら毎回同じ UUID。
@@ -207,14 +216,42 @@ public struct Placement: Codable, Sendable, Equatable {
 }
 
 public enum PolarisError: Error, Sendable, LocalizedError {
-    case invalidInput(String), taskNotFound, northStarNotFound, unknownMode, unsupportedSchema(Int), invalidState(String)
+    case invalidInput(String), taskNotFound, northStarNotFound, northStarNotQueued, invalidDate
+    case unknownMode, unsupportedSchema(Int), invalidState(String)
     public var errorDescription: String? {
         switch self {
         case .invalidInput(let message), .invalidState(let message): message
         case .taskNotFound: "タスクが見つかりません"
         case .northStarNotFound: "北極星が見つかりません"
+        case .northStarNotQueued: "控えの北極星にだけ予約できます"
+        case .invalidDate: "日付はyyyy-MM-dd形式の実在する日付にしてください"
         case .unknownMode: "モードが見つかりません"
         case .unsupportedSchema(let version): "未対応のschemaVersion: \(version)"
         }
+    }
+}
+
+/// ローカル暦日キー `yyyy-MM-dd` の検証。nil はそのまま通す。
+public enum DueDate {
+    public static func checked(_ value: String?) throws -> String? {
+        guard let value else { return nil }
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]), parts[0].count == 4,
+              let month = Int(parts[1]), parts[1].count == 2,
+              let day = Int(parts[2]), parts[2].count == 2,
+              String(format: "%04d-%02d-%02d", year, month, day) == value else {
+            throw PolarisError.invalidDate
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var components = DateComponents()
+        components.year = year; components.month = month; components.day = day
+        guard let date = calendar.date(from: components) else { throw PolarisError.invalidDate }
+        let resolved = calendar.dateComponents([.year, .month, .day], from: date)
+        guard resolved.year == year, resolved.month == month, resolved.day == day else {
+            throw PolarisError.invalidDate
+        }
+        return value
     }
 }
