@@ -72,6 +72,7 @@ final class HandleController {
     func setAlpha(_ alpha: CGFloat) { panel.alphaValue = alpha }
 
     private func hoverChanged(_ hovered: Bool) {
+        if hovered { model.pointerOnHandle() }
         host.rootView = HandleGrip(hovered: hovered, theme: model.theme)
         if hovered {
             NSCursor.openHand.set()

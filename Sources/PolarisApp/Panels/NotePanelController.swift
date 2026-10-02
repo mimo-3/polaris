@@ -101,7 +101,7 @@ final class NotePanelController {
 
     private func watchLeave() {
         // つまみと付箋のあいだの隙間を通るときに畳まないよう、つまみまで含めた枠で見る。
-        let area = handle.frame.isEmpty ? panel.frame : panel.frame.union(handle.frame.insetBy(dx: -4, dy: -4))
+        let area = handle.frame.isEmpty ? panel.frame : panel.frame.union(handle.frame.insetBy(dx: -(PolarisTheme.Metrics.handleGap + 2), dy: -4))
         guard panel.isVisible, model.expanded, !area.contains(NSEvent.mouseLocation) else {
             outsideSince = nil
             return
