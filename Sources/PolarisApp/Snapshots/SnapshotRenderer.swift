@@ -212,18 +212,18 @@ enum SnapshotRenderer {
                            banner: Banner(text: "PR終わったよ、本命に戻ろう", from: "claude-code",
                                           expiresAt: Date().addingTimeInterval(3600)))
         }),
-        // 透過中の付箋と、画面中央側の脇に出るつまみ。
+        // 透過中の付箋と、画面中央側の縁の内側に重ねるつまみ。
         Scenario(name: "clickthrough", build: { m in
-            AnyView(HStack(spacing: PolarisTheme.Metrics.handleGap) {
-                HandleGrip(hovered: false, theme: m.theme)
-                NoteCard()
+            AnyView(NoteCard().overlay(alignment: .leading) {
+                HandleGrip(hovered: false, theme: m.theme).padding(.leading, PolarisTheme.Metrics.handleInset)
             })
         }, configure: { m in m.clickThrough = true }),
         Scenario(name: "clickthrough-hover", build: { m in
-            AnyView(HStack(spacing: PolarisTheme.Metrics.handleGap) {
+            AnyView(HStack(spacing: 6) {
                 HintBubble(text: Copy.handleHelpClosed)
-                HandleGrip(hovered: true, theme: m.theme)
-                NoteCard()
+                NoteCard().overlay(alignment: .leading) {
+                    HandleGrip(hovered: true, theme: m.theme).padding(.leading, PolarisTheme.Metrics.handleInset)
+                }
             })
         }, configure: { m in m.clickThrough = true }),
         // ホバーの案内。歯車の上に止まったところ。
