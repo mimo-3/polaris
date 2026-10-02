@@ -219,9 +219,9 @@ struct StarsView: View {
     private func dueRow(_ star: NorthStar) -> some View {
         let label = star.dueDate.flatMap { DueDates.starLabel($0, now: model.now) }
         return CardRow(title: Copy.starsDue, detail: label?.text ?? Copy.starsDueNone) {
-            if let due = star.dueDate, let date = DueDates.date(due) {
+            if let due = star.dueDate, let date = DueDates.pickerDate(due) {
                 HStack(spacing: S.xs) {
-                    DateField(date: date, components: .date) { model.setNorthStarDue(star.id, DueDates.string($0)) }
+                    DateField(date: date, components: [.date, .hourAndMinute]) { model.setNorthStarDue(star.id, DueDates.string(dateTime: $0)) }
                         .accessibilityLabel(Copy.starsDue)
                     TrashButton(label: Copy.starsDueClear, symbol: "xmark.circle") { model.setNorthStarDue(star.id, nil) }
                 }
