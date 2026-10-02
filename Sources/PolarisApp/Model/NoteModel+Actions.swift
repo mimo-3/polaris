@@ -274,7 +274,7 @@ extension NoteModel {
 
     /// 声の行に出ているボタンの数（左から順）。透過中は出さない。
     var voiceActionCount: Int {
-        guard !clickThrough || optionPeek else { return 0 }
+        guard interactive else { return 0 }
         switch voice {
         case .mode, .transient(.error), .transient(.modeChanged), .transient(.starSurfaced): return 0
         case .detour: return 2

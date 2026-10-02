@@ -22,13 +22,25 @@ final class NoteModel {
     var editing: Editing?
     var draft = ""
     var swapping: UUID?
-    var clickThrough = false
-    var optionPeek = false
+    /// 閉じた付箋はクリックを後ろへ通す。つまみだけが触れる場所になる。
+    var clickThrough: Bool = Prefs.bool("clickThrough", default: true) {
+        didSet {
+            // スナップショットでは描き分けのために切り替えるだけなので、設定には残さない。
+            if !theme.snapshot { Prefs.set(clickThrough, "clickThrough") }
+            if clickThrough != oldValue { interactivityChanged() }
+        }
+    }
+    var optionPeek = false { didSet { if optionPeek != oldValue { interactivityChanged() } } }
+    /// 透過中に、つまみを押して開いている。畳んだら透過に戻る。
+    var handleOpen = false { didSet { if handleOpen != oldValue { interactivityChanged() } } }
     var isKey = false
     var keyboardIndex: Int?
     var dragging = false
     var dayClosedDate: String?
     var hidden = false
+
+    /// 付箋がクリックを受け取れる。透過していないか、⌥ を押しているか、つまみで開いている。
+    var interactive: Bool { !clickThrough || optionPeek || handleOpen }
 
     // MARK: 表示の設定（UserDefaults に残す）
     /// 閉じているときの付箋の濃さ。開いているあいだは常に 1。
@@ -51,13 +63,21 @@ final class NoteModel {
     var now = Date()
 
     // MARK: ホバー（パネルからポインタ位置を受ける。非アクティブなアプリでも確実に拾うため自前で判定する）
-    var pointer: CGPoint? { didSet { updateHoveredRow() } }
+    var pointer: CGPoint? { didSet { updateHoveredRow(); updateHint() } }
     var rowFrames: [UUID: CGRect] = [:] { didSet { updateHoveredRow() } }
     var hoveredRow: UUID?
+    /// ホバーで案内を出す場所。id ごとに文言と枠を持つ。描き直しを招かないよう観測から外す。
+    @ObservationIgnored var hintTargets: [String: (text: String, frame: CGRect)] = [:]
+    /// いま出している案内。
+    var hint: NoteHint?
+    @ObservationIgnored private var hintCandidate: String?
+    @ObservationIgnored private var hintTask: _Concurrency.Task<Void, Never>?
 
     // MARK: パネルへの依頼
     @ObservationIgnored var requestKey: () -> Void = {}
     @ObservationIgnored var resignKey: () -> Void = {}
+    /// クリックを受け取れるかが変わった。パネルの ignoresMouseEvents を合わせてもらう。
+    @ObservationIgnored var interactivityChanged: () -> Void = {}
     @ObservationIgnored var onDayChanged: () -> Void = {}
     @ObservationIgnored var requestMorning: () -> Void = {}
     @ObservationIgnored var onStateApplied: () -> Void = {}
@@ -92,7 +112,7 @@ final class NoteModel {
     var modes: [Mode] { state.availableModes }
     var lead: Item? { state.today.now.first }
     var expanded: Bool {
-        guard !clickThrough || optionPeek else { return false }
+        guard interactive else { return false }
         return pinned || hoverOpen || editing != nil || swapping != nil
     }
     var isDayClosed: Bool { dayClosedDate == state.today.date && !state.today.date.isEmpty }
@@ -113,6 +133,31 @@ final class NoteModel {
         let hit = rowFrames.first { $0.value.contains(pointer) }?.key
             ?? rowFrames.first { $0.value.insetBy(dx: -8, dy: -4).contains(pointer) }?.key
         if hit != hoveredRow { hoveredRow = hit }
+    }
+
+    /// ポインタが止まった場所に案内があれば、少し待ってから出す。重なっていたら小さい枠を優先する。
+    private func updateHint() {
+        guard !theme.snapshot else { return }
+        let hit = pointer.flatMap { p in
+            hintTargets.filter { $0.value.frame.contains(p) }
+                .min { $0.value.frame.width * $0.value.frame.height < $1.value.frame.width * $1.value.frame.height }
+        }
+        guard hit?.key != hintCandidate else { return }
+        hintCandidate = hit?.key
+        hintTask?.cancel()
+        if hint != nil { hint = nil }
+        guard let hit, expanded, !dragging else { return }
+        hintTask = _Concurrency.Task { @MainActor [weak self] in
+            try? await _Concurrency.Task.sleep(for: .seconds(PolarisTheme.Motion.hintDelay))
+            guard let self, !_Concurrency.Task.isCancelled, self.expanded, self.editing == nil else { return }
+            self.hint = NoteHint(text: hit.value.text, frame: hit.value.frame)
+        }
+    }
+
+    func clearHint() {
+        hintTask?.cancel()
+        hintCandidate = nil
+        if hint != nil { hint = nil }
     }
 
     // MARK: 状態の反映
@@ -289,7 +334,7 @@ final class NoteModel {
     // MARK: ホバー展開
     func pointerEntered() {
         hoverTimer?.cancel()
-        guard !dragging, !clickThrough || optionPeek, !hoverOpen else { return }
+        guard !dragging, interactive, !hoverOpen else { return }
         hoverTimer = _Concurrency.Task { @MainActor [weak self] in
             try? await _Concurrency.Task.sleep(for: .seconds(PolarisTheme.Motion.hoverDelay))
             guard let self, !_Concurrency.Task.isCancelled, !self.dragging else { return }
@@ -339,7 +384,7 @@ final class NoteModel {
 
     /// VoiceOver や自動操作から開閉する。ホバーで開いているだけでも「たたむ」で閉じられるようにする。
     func setExpanded(_ open: Bool) {
-        guard !isDayClosed, !clickThrough || optionPeek, open != expanded else { return }
+        guard !isDayClosed, interactive, open != expanded else { return }
         if open {
             withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { pinned = true }
         } else {
@@ -351,6 +396,21 @@ final class NoteModel {
     func unpinAll() {
         withAnimation(PolarisTheme.Motion.collapse(theme.reduceMotion)) {
             pinned = false; hoverOpen = false; swapping = nil; editing = nil; laterOpen = false
+        }
+        handleOpen = false
+        clearHint()
+    }
+
+    /// つまみを押した。閉じていれば開き、開いていれば畳む。透過中でも開けるよう、つまみで開いた印を立てる。
+    func toggleFromHandle() {
+        if expanded {
+            hoverTimer?.cancel()
+            unpinAll()
+            if isKey { resignKey() }
+        } else {
+            guard !isDayClosed else { return }
+            handleOpen = true
+            withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { pinned = true }
         }
     }
 
@@ -364,6 +424,12 @@ final class NoteModel {
         UserDefaults.standard.set(dayClosedDate, forKey: "dayClosedDate")
         unpinAll()
     }
+}
+
+/// ホバーで出す案内。枠は付箋の座標（NoteCard.space）。
+struct NoteHint: Equatable {
+    var text: String
+    var frame: CGRect
 }
 
 /// 表示の設定の読み書き。キーが無いときは既定値。
