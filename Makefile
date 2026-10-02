@@ -1,4 +1,4 @@
-.PHONY: build test app snapshots install
+.PHONY: build test app release snapshots install
 build:
 	swift build
 
@@ -14,3 +14,6 @@ snapshots: app
 install: app
 	rm -rf /Applications/Polaris.app
 	cp -R build/Polaris.app /Applications/Polaris.app
+
+release:
+	./scripts/release.sh
