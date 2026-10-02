@@ -45,7 +45,8 @@ extension NoteModel {
     /// 30秒ごとに呼ぶ。期限の「あと n日」を日付の替わり目で更新し、予約の時間が来た北極星を上げる。
     func tick() {
         let current = Date()
-        if !Calendar.current.isDate(current, inSameDayAs: now) { now = current }
+        // 期限の「あと何時間」を進めるため、分が変わったら now を進める。
+        if Int(current.timeIntervalSince1970 / 60) != Int(now.timeIntervalSince1970 / 60) { now = current }
         surfaceScheduledStars()
     }
 
