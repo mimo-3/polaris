@@ -14,6 +14,7 @@ struct LaterSection: View {
                 .buttonStyle(InlineButtonStyle())
                 .disabled(count == 0)
                 .focusRing(model.focusedTarget == .later)
+                .noteHint(Hint.later)
                 .accessibilityLabel("あとで、\(count)件")
                 .accessibilityValue(model.laterOpen ? "開いている" : "閉じている")
                 .accessibilityAddTraits(.isButton)
@@ -88,6 +89,7 @@ private struct LaterRow: View {
             if showsAction {
                 Button(Copy.moveToNow) { model.moveToNow(task.id) }
                     .buttonStyle(SmallButtonStyle())
+                    .noteHint(Hint.moveToNow, id: "now-\(task.id)")
             }
         }
         .padding(.leading, PolarisTheme.Space.xs)
