@@ -9,6 +9,8 @@ struct TaskRow: View {
     @Environment(NoteModel.self) private var model
     @Environment(\.polaris) private var theme
     @State var dragY: CGFloat = 0
+    /// ジェスチャが取り消されたとき（メニューが開いた等）は onEnded が来ない。これの立ち下がりで後始末する。
+    @GestureState private var pressing = false
     @FocusState var fieldFocused: Bool
 
     private var isLead: Bool { index == 0 }
@@ -37,6 +39,11 @@ struct TaskRow: View {
         .onDisappear { model.rowFrames[task.id] = nil }
         .offset(y: dragY)
         .zIndex(dragY == 0 ? 0 : 1)
+        .onChange(of: pressing) { _, held in
+            guard !held else { return }
+            model.dragging = false
+            if dragY != 0 { withAnimation(PolarisTheme.Motion.promote(theme.reduceMotion)) { dragY = 0 } }
+        }
         .gesture(reorderGesture, including: model.expanded && !renaming ? .all : .subviews)
         .contextMenu { if !renaming { RowMenuItems(task: task, index: index) } }
         .accessibilityElement(children: .combine)
@@ -135,6 +142,7 @@ struct TaskRow: View {
 
     private var reorderGesture: some Gesture {
         DragGesture(minimumDistance: 4)
+            .updating($pressing) { _, state, _ in state = true }
             .onChanged { value in
                 model.dragging = true
                 dragY = value.translation.height

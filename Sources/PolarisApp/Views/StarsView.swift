@@ -43,7 +43,7 @@ struct StarsView: View {
                 }
             }
         } else {
-            MetaText(text: Copy.northStarEmpty)
+            MetaText(text: Copy.northStarNone)
         }
     }
 

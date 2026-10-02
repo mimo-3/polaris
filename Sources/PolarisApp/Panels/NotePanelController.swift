@@ -276,6 +276,8 @@ struct NotePanelRoot: View {
     var onHeight: (CGFloat) -> Void
     var onDrag: (DragPhase) -> Void
     @FocusState private var rootFocused: Bool
+    /// 付箋を掴んでいる間だけ true。取り消されて onEnded が来ないときも false に戻るので、終わりの合図に使う。
+    @GestureState private var holding = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -284,8 +286,11 @@ struct NotePanelRoot: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { onHeight($0) }
                 .gesture(DragGesture(minimumDistance: 3)
+                    .updating($holding) { _, state, _ in state = true }
                     .onChanged { _ in onDrag(.changed) }
                     .onEnded { _ in onDrag(.ended) })
+                // .ended は2回来ても dragStart で1回に絞られる。
+                .onChange(of: holding) { _, held in if !held { onDrag(.ended) } }
                 .contextMenu { BackgroundMenuItems() }
             if model.corner.isTop { Spacer(minLength: 0) }
         }
