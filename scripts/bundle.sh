@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 swift build -c release
 bin_dir="$(swift build -c release --show-bin-path)"
 app="build/Polaris.app"
+rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin_dir/PolarisApp" "$app/Contents/MacOS/Polaris"
 cp "$bin_dir/polaris-mcp" "$app/Contents/MacOS/polaris-mcp"
@@ -30,7 +31,10 @@ if [[ -f Resources/Polaris.icns ]]; then
 fi
 identity="$(security find-identity -v -p codesigning | awk '/Developer ID Application:/ {print $2; exit}')"
 identity="${identity:--}"
-codesign --force --options runtime --sign "$identity" "$app/Contents/MacOS/polaris-mcp"
-codesign --force --options runtime --sign "$identity" "$app"
+# Notarization requires a secure timestamp, which ad-hoc signatures cannot carry.
+timestamp=()
+[[ "$identity" != "-" ]] && timestamp=(--timestamp)
+codesign --force --options runtime ${timestamp[@]+"${timestamp[@]}"} --sign "$identity" "$app/Contents/MacOS/polaris-mcp"
+codesign --force --options runtime ${timestamp[@]+"${timestamp[@]}"} --sign "$identity" "$app"
 codesign --verify --deep --strict "$app"
 echo "Created $app"
