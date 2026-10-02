@@ -294,6 +294,9 @@ struct StarQueueLine: View {
     var body: some View {
         let queue = model.state.queuedStars
         let hasToday = model.today.star != nil
+        if model.editing == .queueStar {
+            QueueStarField()
+        } else {
         HStack(spacing: PolarisTheme.Space.s) {
             if let next = queue.first {
                 // 押すと控えと振り返りの窓を開く。並べ替えや過去を見るのはそこで行う。
@@ -334,9 +337,53 @@ struct StarQueueLine: View {
                 .noteHint(Hint.starQueue)
             }
             Spacer(minLength: 0)
-            Button(hasToday ? Copy.starAchieved : Copy.starUseNext) { model.performStarQueueAction() }
-                .buttonStyle(SmallButtonStyle(outlined: true, focused: model.focusedTarget == .starQueue))
-                .noteHint(hasToday ? Hint.starAchieve : Hint.starUseNext)
+            if queue.count < TextRules.starQueueMax {
+                Button { model.beginEditing(.queueStar) } label: { iconLabel("plus") }
+                    .buttonStyle(SmallButtonStyle())
+                    .accessibilityLabel(Copy.queueStarAdd)
+                    .noteHint(Hint.queueStar)
+            }
+            // 達成は ✓ の印だけにする。押すと何が起きるかはホバーの案内と読み上げで伝える。
+            if hasToday {
+                Button { model.performStarQueueAction() } label: { iconLabel("checkmark") }
+                    .buttonStyle(SmallButtonStyle(outlined: true, focused: model.focusedTarget == .starQueue))
+                    .accessibilityLabel(Copy.starAchieved)
+                    .noteHint(Hint.starAchieve)
+            } else {
+                Button(Copy.starUseNext) { model.performStarQueueAction() }
+                    .buttonStyle(SmallButtonStyle(outlined: true, focused: model.focusedTarget == .starQueue))
+                    .noteHint(Hint.starUseNext)
+            }
+        }
+        .frame(minHeight: 24)
+        }
+    }
+
+    private func iconLabel(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 12, weight: .bold))
+            .frame(width: 14, height: 16)
+    }
+}
+
+/// 付箋の「＋」から控えに北極星を足す入力欄。明朝ではなく本文の字で、続けて足せる。
+private struct QueueStarField: View {
+    @Environment(NoteModel.self) private var model
+    @Environment(\.polaris) private var theme
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        @Bindable var model = model
+        HStack(spacing: 10) {
+            Image(systemName: "plus")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(theme.ink2)
+                .accessibilityHidden(true)
+            PolarisTextField(text: $model.draft, prompt: Copy.queueStarPlaceholder, font: PolarisTheme.Typography.task,
+                             onSubmit: { model.commitEditing() })
+                .focused($focused)
+                .onAppear { focused = true }
+                .onExitCommand { model.endEditing() }
         }
         .frame(minHeight: 24)
     }

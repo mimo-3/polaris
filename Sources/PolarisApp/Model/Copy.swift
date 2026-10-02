@@ -33,6 +33,8 @@ enum Copy {
     static let startMorning = "朝の支度を始める"
     static let add = "＋ タスクを追加"
     static let addPlaceholder = "やることを1行で"
+    static let queueStarPlaceholder = "控えに入れる北極星を1行で"
+    static let queueStarAdd = "控えに北極星を足す"
     static func later(_ n: Int) -> String { "あとで \(n)" }
     static let laterFullSuffix = "・いまは満杯"
     static let laterEmpty = "あとでは空"
@@ -201,6 +203,7 @@ enum Hint {
     static let starQueue = "控えと振り返りの窓を開く"
     static let starAchieve = "達成にして、次の控えを今日の北極星にする"
     static let starUseNext = "先頭の控えを今日の北極星にする"
+    static let queueStar = "控えに北極星を足す"
     static let complete = "完了にする"
     static let rowMenu = "期限・名前・あとでへ送るなど"
     static let rowRename = "ダブルクリックで名前を変える"

@@ -288,6 +288,11 @@ enum SnapshotRenderer {
         Scenario(name: "expanded-star-queue", build: { _ in card() }, configure: { m in
             m.pinned = true
         }, state: { _ in Fixtures.withStars(Fixtures.state()) }),
+        // 「＋」で控えに北極星を足しているところ。
+        Scenario(name: "star-queue-add", build: { _ in card() }, configure: { m in
+            m.pinned = true
+            m.editing = .queueStar
+        }, state: { _ in Fixtures.withStars(Fixtures.state()) }),
         Scenario(name: "star-achieved", build: { _ in card() }, configure: { m in
             m.transient = .starEnded(starID: Fixtures.starID(9), title: Fixtures.longStar,
                                      next: Fixtures.queuedStars[0].text, achieved: true)
