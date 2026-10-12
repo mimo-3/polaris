@@ -92,6 +92,7 @@ final class NoteModel {
     @ObservationIgnored private var hoverTimer: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private var transientTimer: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private var detourTimer: _Concurrency.Task<Void, Never>?
+    @ObservationIgnored private let operations = StateOperationQueue()
     @ObservationIgnored private var observation: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private var bannerTimer: _Concurrency.Task<Void, Never>?
 
@@ -178,11 +179,16 @@ final class NoteModel {
         guard let store, observation == nil else { return }
         observation = _Concurrency.Task { @MainActor [weak self] in
             while !_Concurrency.Task.isCancelled {
-                for await result in store.changes() {
+                for await _ in store.changes() {
                     guard let self else { return }
-                    switch result {
-                    case .success(let next): self.apply(next)
-                    case .failure: self.markLoadFailed()
+                    // 通知に付いた古い状態は使わず、操作と同じ列で最新状態を読む。
+                    self.operations.enqueue { [weak self] in
+                        let result = await _Concurrency.Task.detached { Result { try store.read() } }.value
+                        guard let self else { return }
+                        switch result {
+                        case .success(let next): self.apply(next)
+                        case .failure: self.markLoadFailed()
+                        }
                     }
                 }
                 try? await _Concurrency.Task.sleep(for: .seconds(3))
@@ -263,7 +269,7 @@ final class NoteModel {
                           then done: @escaping @MainActor (T) -> Void = { _ in },
                           always: @escaping @MainActor () -> Void = {}) {
         guard let store else { always(); return }
-        _Concurrency.Task { @MainActor [weak self] in
+        operations.enqueue { [weak self] in
             let result = await _Concurrency.Task.detached(priority: .userInitiated) {
                 Result { () throws -> (T, AppState) in
                     let value = try op(store)
