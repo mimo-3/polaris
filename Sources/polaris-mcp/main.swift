@@ -7,6 +7,7 @@ while let line = reader.next() {
     let response: String?
     switch line {
     case .text(let text): response = server.handle(line: text)
+    case .invalidUTF8: response = MCPServer.parseErrorResponse()
     case .tooLong: response = MCPServer.tooLongResponse()
     }
     if let response {
