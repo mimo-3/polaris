@@ -8,7 +8,7 @@ final class OSSHardeningMCPTests {
     deinit { for home in homes { try? FileManager.default.removeItem(at: home) } }
     private func session(name: String = "test", version: String = "2025-06-18") throws -> (MCPServer, PolarisStore, [String: Any]) {
         let home = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("oss-fix2-mcp-tests-\(UUID().uuidString)")
+            .appendingPathComponent("polaris-test-mcp-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         homes.append(home)
         let date = Date(timeIntervalSince1970: 1_780_272_000)
@@ -150,13 +150,13 @@ final class OSSHardeningMCPTests {
 
     @Test func testRelativePolarisHomeIsRejectedByMCPProcess() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let directory = root.appendingPathComponent("oss-fix2-relative-\(UUID().uuidString)")
+        let directory = root.appendingPathComponent("polaris-test-relative-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         homes.append(directory)
         let process = Process()
         process.executableURL = root.appendingPathComponent(".build/debug/polaris-mcp")
         process.currentDirectoryURL = directory
-        process.environment = ProcessInfo.processInfo.environment.merging(["POLARIS_HOME": "oss-fix2-not-absolute"]) { _, new in new }
+        process.environment = ProcessInfo.processInfo.environment.merging(["POLARIS_HOME": "polaris-test-not-absolute"]) { _, new in new }
         let input = Pipe()
         let output = Pipe()
         process.standardInput = input
@@ -178,7 +178,7 @@ final class OSSHardeningMCPTests {
         let last = try #require(lines.last)
         let reply = try #require(JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any])
         #expect((reply["result"] as? [String: Any])?["isError"] as? Bool == true)
-        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("oss-fix2-not-absolute").path))
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("polaris-test-not-absolute").path))
     }
 
 }
