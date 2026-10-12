@@ -51,8 +51,7 @@ struct TaskRow: View {
         .gesture(reorderGesture, including: model.expanded && !renaming ? .all : .subviews)
         .contextMenu { if !renaming { RowMenuItems(task: task, index: index) } }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel((isLead ? "本命、\(task.title)" : "いまの\(index + 1)件目、\(task.title)")
-                            + (task.dueDate.flatMap { DueDates.taskLabel($0, now: model.now) }.map { "、\($0.text)" } ?? ""))
+        .accessibilityLabel(rowLabel)
         .accessibilityValue(completing ? "完了" : "")
         // 点のボタンは combine で行に吸われるので、行そのものの既定操作（AXPress）を完了にする。
         .accessibilityAddTraits(.isButton)
@@ -61,6 +60,12 @@ struct TaskRow: View {
         .accessibilityAction(named: "完了にする") { model.complete(task.id) }
         .accessibilityAction(named: "あとでに送る") { model.sendLater(task.id) }
         .modifier(LeadAction(isLead: isLead) { model.makeLead(task.id) })
+    }
+
+    private var rowLabel: String {
+        let name = isLead ? "本命、\(task.title)" : "いまの\(index + 1)件目、\(task.title)"
+        guard let due = task.dueDate.flatMap({ DueDates.taskLabel($0, now: model.now) }) else { return name }
+        return name + "、" + due.text
     }
 
     private var dotStyle: DotStyle {

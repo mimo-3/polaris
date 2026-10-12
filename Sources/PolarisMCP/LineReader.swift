@@ -2,7 +2,7 @@ import Foundation
 
 /// 改行区切りで読む。上限を超えた行は中身を溜めずに読み捨て、`.tooLong` として返す。
 public struct LineReader {
-    public enum Line: Equatable { case text(String), tooLong }
+    public enum Line: Equatable { case text(String), tooLong, invalidUTF8 }
 
     private let maxBytes: Int
     private let readChunk: (inout [UInt8]) -> Int
@@ -53,6 +53,7 @@ public struct LineReader {
         defer { buffer.removeAll(keepingCapacity: true); overflowing = false }
         if overflowing { return .tooLong }
         if buffer.last == 0x0D { buffer.removeLast() }
-        return .text(String(decoding: buffer, as: UTF8.self))
+        guard let text = String(bytes: buffer, encoding: .utf8) else { return .invalidUTF8 }
+        return .text(text)
     }
 }

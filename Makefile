@@ -12,8 +12,7 @@ snapshots: app
 	build/Polaris.app/Contents/MacOS/Polaris --render-snapshots snapshots/
 
 install: app
-	rm -rf /Applications/Polaris.app
-	cp -R build/Polaris.app /Applications/Polaris.app
+	./scripts/install.sh
 
 release:
 	./scripts/release.sh

@@ -1,12 +1,24 @@
 # Polaris
 
-今日いちばん大事なことを、画面のいちばん手前に置くmacOSアプリです。北極星を1文、いま取り組むことを最大3件に絞り、それ以外は「あとで」に残します。MCPからも同じ状態を読み書きできます。
+[English](README.en.md)
 
-アプリは全Space・フルスクリーンの上に出る小さな付箋（NSPanel）と、メニューバーのアイコンで動きます。ショートカットは ⌃⌥P（北極星を書き換える）、⌃⌥N（タスクを追加）、⌃⌥O（付箋を操作する）、⌃⌥H（隠す）、⌃⌥T（クリック透過）です。製品仕様は [docs/product.md](docs/product.md)、画面仕様は [docs/design.md](docs/design.md) を参照してください。
+今日いちばん大事なことを画面のいちばん手前に置くmacOSアプリです。北極星を1文に決め、いま取り組むことはnowに最大3件まで、それ以外は「あとで」のlaterに残します。モードは「仕事の日」「読書の日」「休む日」のような1日の過ごし方です。モードごとに避けたいアプリを決めておくと、そのアプリが前面に来たときに付箋が北極星を示します。
+
+MCPサーバーは `polaris-mcp` としてアプリに同梱しています。AIエージェントなどのMCPクライアントから、アプリと同じ状態を読み書きできます。
+
+アプリは全Space・フルスクリーンの上に出る小さな付箋と、メニューバーのアイコンで動きます。ショートカットは次のとおりです。
+
+- ⌃⌥P: 北極星を書き換える
+- ⌃⌥N: タスクを追加する
+- ⌃⌥O: 付箋を操作する
+- ⌃⌥H: 隠す
+- ⌃⌥T: クリックを透過する
+
+製品仕様は [docs/product.md](docs/product.md)、画面仕様は [docs/design.md](docs/design.md) にあります。
 
 ## ビルド
 
-macOS 14以上、Swift 6対応のCommand Line Toolsが必要です。外部パッケージやXcodeプロジェクトは使いません。
+macOS 14以上とSwift 6対応のCommand Line ToolsかXcodeが必要です。外部パッケージやXcodeプロジェクトは使いません。
 
 ```sh
 swift build
@@ -15,23 +27,80 @@ make app
 open build/Polaris.app
 ```
 
-`make build` は `swift build` を実行します。`make test` はSwift Testingのテストを実行します。`make app` はreleaseビルドを `build/Polaris.app` にまとめ、Developer ID Application証明書があればその証明書で、なければアドホック署名します。公証は `make release` で行います。アイコンを追加する場合は `Resources/Polaris.icns` を配置してください。
+`make app` はreleaseビルドを `build/Polaris.app` にまとめて署名します。人に配るアプリは `SIGNING_IDENTITY` に署名IDを指定してビルドしてください。省略するとアドホック署名になります。
 
-`make release` は `make app` のあと `build/Polaris.dmg` を作り、Developer ID署名・公証・ステープルまで行います。事前にApp Store Connect APIキーで公証用のキーチェーンプロファイルを作っておいてください。プロファイル名は `NOTARY_PROFILE` で変えられます（既定は `polaris-notary`）。
-
-```sh
-xcrun notarytool store-credentials polaris-notary --key <AuthKey_XXXX.p8> --key-id <Key ID> --issuer <Issuer ID>
-make release
-```
-
-`make snapshots` はアプリに `--render-snapshots snapshots/` を渡し、主要な状態をライト・ダーク（一部はコントラスト強調とモード違いも）でPNGに書き出して終了します。ウィンドウは出しません。ImageRendererは素材を描けないので、地は不透明の `surface` で近似します。
+## インストールとMCPの接続
 
 ```sh
 make install
 claude mcp add polaris -- /Applications/Polaris.app/Contents/MacOS/polaris-mcp
 ```
 
-`make install` は既存の `/Applications/Polaris.app` を削除してコピーします。状態データは削除しません。インストールは書き込み権限のあるアカウントで実行してください。
+`make install` は新しいアプリを `/Applications` にコピーしてから、既存の `Polaris.app` と入れ替えます。途中で失敗したときは既存のアプリをそのまま残します。状態データは削除しません。インストールは `/Applications` に書き込めるアカウントで実行します。
+
+Claude Code以外のMCPクライアントでは、stdioで起動するコマンドに `/Applications/Polaris.app/Contents/MacOS/polaris-mcp` を指定します。Claude Desktopなら設定ファイルに次のように書きます。
+
+```json
+{
+  "mcpServers": {
+    "polaris": {
+      "command": "/Applications/Polaris.app/Contents/MacOS/polaris-mcp"
+    }
+  }
+}
+```
+
+`INSTALL_DIR` で入れ替え先を変えたときは、コマンドも `<INSTALL_DIR>/Polaris.app/Contents/MacOS/polaris-mcp` になります。入れ替えにはAPFSの機能を使うので、`INSTALL_DIR` にはAPFS上のディレクトリを指定します。アプリを入れずに試すなら、`swift build` で作ったリポジトリ内の `.build/debug/polaris-mcp` を絶対パスで指定できます。
+
+## 更新するとき
+
+アプリとMCPは同時に更新し、更新したあとはMCPクライアントも再起動してください。今の版は状態ファイルを最初の読み書きでschemaVersion 2に移し、以前の版はschemaVersion 2を読めません。起動したままの古いpolaris-mcpは、書き換わった状態に `unsupportedSchema` のエラーを返します。
+
+移行のときは、以前の版が和暦や仏暦で書いた日付のキーをグレゴリオ暦に直します。v1には元号が残っていないので、和暦は移行した時点の元号として読みます。読めなかったキーは消さずに残します。
+
+## データの保存先
+
+状態は `~/.polaris/state.json` に保存します。`POLARIS_HOME` にディレクトリの絶対パスを指定すると保存先を切り替えられます。保存先にはシンボリックリンクも使えます。リンクを解決した先は自分が所有するディレクトリで、グループとその他のユーザーが書き込めない必要があります。アプリとMCPを同じ状態につなぐ場合は同じ保存先を指定してください。
+
+state.json が壊れて読めないときは、メニューバーの「状態を作り直す」で `state.corrupt-<日時>-<UUID>.json` に退避して新しく始められます。UUID付きの退避ファイルは新しいものから5件だけ残します。以前の版が作った `state.corrupt-<日時>.json` は消しません。
+
+## プライバシー
+
+Polarisはネットワークに接続しません。データは `~/.polaris/state.json` か `POLARIS_HOME` で指定したディレクトリにだけ保存し、外部へは送りません。前面のアプリが切り替わると、いまのモードで避けたいアプリかを確かめるためにそのbundle IDを見ます。見たbundle IDはメモリ上で比べるだけで保存しません。ショートカットはCarbonの `RegisterEventHotKey` で登録するので、アクセシビリティ権限は要りません。
+
+## 開発に参加する
+
+Issueやプルリクエストの出し方は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。脆弱性はIssueに書かず、[SECURITY.md](SECURITY.md) の手順で非公開で報告してください。
+
+## ライセンス
+
+MITライセンスです。全文は [LICENSE](LICENSE) にあります。
+
+## 開発者向け
+
+### ビルドの設定
+
+`make build` は `swift build` を実行します。`make test` はSwift Testingのテストを実行し、成功したテストが1件もなければ失敗にします。`Resources/Polaris.icns` を置くとアイコンとして同梱します。`make app` では次の値を環境変数で上書きできます。
+
+| 変数 | 既定値 |
+|---|---|
+| `SIGNING_IDENTITY` | アドホック署名 |
+| `BUNDLE_IDENTIFIER` | `dev.mimo.polaris` |
+| `VERSION` | `1.0.0` |
+| `BUILD_NUMBER` | `git rev-list --count HEAD` の値。取れなければ `1` |
+
+アプリに同梱したpolaris-mcpはアプリのInfo.plistにあるバージョンを名乗ります。単体でビルドしたpolaris-mcpは、ライブラリのPolarisCoreにある既定値の1.0.0を名乗ります。
+
+`make release` は `make app` のあと `build/Polaris.dmg` を作り、署名・公証・ステープルまで行います。`SIGNING_IDENTITY` にDeveloper ID Applicationの署名IDがないと失敗します。公証にはApp Store Connect APIキーで作ったキーチェーンプロファイルを使います。プロファイル名は `NOTARY_PROFILE` で変えられ、既定は `polaris-notary` です。
+
+```sh
+xcrun notarytool store-credentials polaris-notary --key <AuthKey_XXXX.p8> --key-id <Key ID> --issuer <Issuer ID>
+SIGNING_IDENTITY="Developer ID Application: <名前> (<Team ID>)" make release
+```
+
+`make snapshots` はアプリに `--render-snapshots snapshots/` を渡し、主要な状態をライトとダークでPNGに書き出して終了します。一部の状態はコントラスト強調やモード違いも書き出します。ウィンドウは出しません。すりガラスの背景は描けないので、スナップショットでは不透明の背景色で代用します。
+
+### テストとCI
 
 Command Line Tools単体のSwift 6.3.2では、素の `swift test` がテスト0件で終了する問題を確認しています。`make test` はこの環境を検出し、生成ランナーにも `Testing.framework` の探索パスを渡します。Xcode環境では通常の `swift test` を実行します。
 
@@ -41,24 +110,31 @@ Command Line Tools単体のSwift 6.3.2では、素の `swift test` がテスト0
 python3 scripts/polaris-backend-smoke.py
 ```
 
-## データとMCP
+プルリクエストとmainへのpushでは、GitHub ActionsがmacOS上で `swift build` と `make test` とこのスモークテストを実行します。
 
-状態は `~/.polaris/state.json` に保存します。`POLARIS_HOME` にディレクトリを指定すると保存先を切り替えられます。アプリとMCPを同じ状態につなぐ場合は同じ保存先を指定してください。state.json が壊れて読めないときは、メニューバーの「状態を作り直す」で `state.corrupt-<日時>.json` に退避して新しく始められます。
+### 状態ファイルの形式
 
-- JSONの日時はISO 8601、日のキーはローカル時刻の `YYYY-MM-DD` です。
+- JSONの日時はISO 8601、日のキーはローカル時刻の `YYYY-MM-DD` です。状態はschemaVersion 2で保存します。
 - `state.lock` をflockでロックし、最新の状態に変更を適用して、一時ファイルからrenameします。実際に状態が変わった書き込みでrevisionが1増えます。初回作成はrevision 1です。
-- 日付が進んだ最初の読み書きで前日を履歴に移し、未完了のnowをlaterの先頭へ戻します。モードは仕事の日、北極星は空になります。履歴は過去90暦日以内で最大90件です。
+- 日付が進んだ最初の読み書きで前日を履歴に移し、未完了のnowをlaterの先頭へ戻します。モードは既定のモードに戻り、北極星は空になります。履歴は過去90暦日以内で最大90件です。
 - 北極星は今日1つに加え、控え（最大20件）と終わったログを持てます。日付が進むと未完了の北極星は履歴に残しつつ控えの先頭へ戻ります。完了するとログへ移り、控えの先頭があれば今日になります。
 - nowが満杯なら追加・移動先はlater末尾になり、`Placement.overflowed` がtrueになります。positionは0始まりで、リスト長を超える位置は末尾扱いです。
+- laterに入れられるのは200件までで、追加や移動で超える操作はエラーにします。日付の繰り越しなどで200件を超えた分はそのまま残します。
 - 完了したタスクをmoveすると未完了に戻ります。履歴中のタスクは変更しません。
-- bannerは1件です。既定5分、最大1440分で、読み書きや監視時に期限切れを除去します。
-- 壊れたJSONや未対応schemaVersionはエラーにし、既存データを上書きしません。
+- bannerはMCPから付箋に一時的に出すメッセージで、1件だけ持ちます。表示は既定5分、最大1440分で、読み書きや監視時に期限切れを除去します。
+- state.jsonは8MBまでです。超えたファイルは壊れたJSONや未対応のschemaVersionと同じくエラーにし、既存データを上書きしません。
 
-MCPは改行区切りJSON-RPC 2.0のstdioサーバーです。標準出力には応答だけを書きます。[MCPのinitializeとツール応答形式](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/schema.mdx)を利用し、2024-11-05、2025-03-26、2025-06-18をネゴシエートできます。
+### MCPサーバーの仕様
 
-20個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_list_north_stars`, `polaris_add_north_star`, `polaris_update_north_star`, `polaris_complete_north_star`, `polaris_switch_north_star`, `polaris_remove_north_star`, `polaris_get_north_star_log`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_update_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。タイトルと北極星は200字、nudge の text は280字までです。引数の詳細は `tools/list` のinputSchemaで取得できます。追加先はlaterが既定です。ユーザーの指示なしにnowを入れ替えないでください。
+polaris-mcpは改行区切りJSON-RPC 2.0のstdioサーバーです。標準出力には応答だけを書きます。バッチ要求には対応しません。[MCPのinitializeとツール応答形式](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/schema.mdx)を利用し、2024-11-05と2025-06-18をネゴシエートできます。
 
-## UIからの購読
+20個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_list_north_stars`, `polaris_add_north_star`, `polaris_update_north_star`, `polaris_complete_north_star`, `polaris_switch_north_star`, `polaris_remove_north_star`, `polaris_get_north_star_log`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_update_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。引数の詳細は `tools/list` のinputSchemaで取得できます。
+
+タイトルと北極星は200字、`polaris_nudge` の text は280字までです。字数は書記素とUnicodeスカラーの両方で数え、どちらかが上限を超えるとエラーにします。`polaris_nudge` で出したbannerには差出人として `MCP: <クライアント名>` を表示します。タスクの追加先はlaterが既定です。MCPクライアントには、ユーザーの指示なしにnowを入れ替えさせない運用を想定しています。
+
+### PolarisCoreで状態の変化を受け取る
+
+PolarisCoreはSwift Packageのライブラリとして公開していて、アプリとpolaris-mcpもこれを通して状態を読み書きします。
 
 ```swift
 import PolarisCore
@@ -69,10 +145,16 @@ let placement = try store.addTask(title: "読む", to: .now)
 
 // UIのライフサイクルに合わせて購読Taskをキャンセルしてください。
 // PolarisCore.Taskとの名前衝突を避ける場合は _Concurrency.Task と書けます。
-for try await state in store.changes() {
-    // MainActor上で画面の状態を更新する
-    print(state.revision, state.today.northStar)
+for await change in store.changes() {
+    switch change {
+    case .success(let state):
+        // MainActor上で画面の状態を更新する
+        print(state.revision, state.today.northStar)
+    case .failure(let error):
+        // 読めないことを表示する。監視は続き、読めるようになると .success が届く
+        print(error)
+    }
 }
 ```
 
-`changes()` は初期状態と新しいrevisionを通知し、遅い購読者には最新1件を保持します。ディレクトリのDispatchSource監視で原子的置換を検知し、1秒間隔の補助タイマーで日付変更とbanner期限も反映します。ファイルエラー時にはthrowして終了します。ストア操作は同期APIなので、大きな履歴を扱う処理はUIのメインスレッド外で行ってください。
+`changes()` は初期状態と新しいrevisionを `.success` で通知し、遅い購読者には最新1件を保持します。ディレクトリのDispatchSource監視で原子的置換を検知し、1秒間隔の補助タイマーで日付変更とbanner期限も反映します。状態を読めないときは `.failure` を1回通知して監視を続け、次に読めた時点で `.success` を通知します。ストア操作は同期APIなので、大きな履歴を扱う処理はUIのメインスレッド外で行ってください。

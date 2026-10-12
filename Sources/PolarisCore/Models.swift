@@ -74,7 +74,9 @@ public struct NorthStar: Codable, Sendable, Equatable, Identifiable {
     public static func midnight(for dateKey: String, calendar: Calendar = .current) -> Date {
         let parts = dateKey.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return Date() }
-        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) ?? Date()
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        return gregorian.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) ?? Date()
     }
 }
 
@@ -171,8 +173,10 @@ public struct State: Codable, Sendable, Equatable {
     public var starQueue: [NorthStar]?
     /// 終わった北極星。キーが無い古い状態では nil。
     public var starLog: [NorthStar]?
+    /// 旧暦で解釈できなかったキー。v2 再読込でも履歴の整理から保護する。
+    var unconvertedDateKeys: [String]?
 
-    public init(schemaVersion: Int = 1, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil,
+    public init(schemaVersion: Int = 2, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil,
                 history: [Day] = [], lastOverflow: OverflowEvent? = nil, modes: [Mode]? = nil,
                 starQueue: [NorthStar]? = nil, starLog: [NorthStar]? = nil) {
         self.schemaVersion = schemaVersion; self.revision = revision; self.today = today
@@ -235,6 +239,12 @@ public enum PolarisError: Error, Sendable, LocalizedError {
 public enum DueDate {
     public static func checked(_ value: String?) throws -> String? {
         guard let value else { return nil }
+        let bytes = Array(value.utf8)
+        guard bytes.count == 10 || bytes.count == 16 else { throw PolarisError.invalidDate }
+        for (index, byte) in bytes.enumerated() {
+            let separator: UInt8? = [4: 45, 7: 45, 10: 84, 13: 58][index]
+            guard separator.map({ byte == $0 }) ?? (48...57).contains(byte) else { throw PolarisError.invalidDate }
+        }
         let halves = value.split(separator: "T", omittingEmptySubsequences: false)
         guard halves.count <= 2 else { throw PolarisError.invalidDate }
         try checkDay(String(halves[0]))

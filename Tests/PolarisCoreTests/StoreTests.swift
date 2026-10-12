@@ -19,7 +19,7 @@ final class StoreTests {
     private var homes: [URL] = []
     deinit { for url in homes { try? FileManager.default.removeItem(at: url) } }
     private func home() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("polaris-backend-\(UUID().uuidString)")
+        let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/polaris-test-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         homes.append(url)
         return url
