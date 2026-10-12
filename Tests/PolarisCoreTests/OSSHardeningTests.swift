@@ -16,7 +16,7 @@ final class OSSHardeningTests {
     deinit { for home in homes { try? FileManager.default.removeItem(at: home) } }
     private func home() throws -> URL {
         let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("oss-fix-tests-\(UUID().uuidString)")
+            .appendingPathComponent("oss-fix2-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         homes.append(url)
         return url
@@ -53,6 +53,63 @@ final class OSSHardeningTests {
         #expect(migrated.today == original.today)
         #expect(migrated.queuedStars == [star])
         #expect(try subject.read() == migrated)
+    }
+
+    @Test(arguments: [Calendar.Identifier.buddhist, .japanese])
+    func testLegacyCalendarKeysMigrateBeforeRollingOverExactlyOnce(identifier: Calendar.Identifier) throws {
+        let legacyCalendar = calendar(identifier)
+        func legacyKey(_ date: Date) -> String {
+            let parts = legacyCalendar.dateComponents([.year, .month, .day], from: date)
+            return String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
+        }
+        let subject = store(try home(), calendar: legacyCalendar)
+        let unfinished = Task(title: "持ち越す", createdAt: now, dueDate: "2026-06-30")
+        let previous = Day(date: legacyKey(now.addingTimeInterval(-86400)), now: [unfinished], note: "昨日")
+        let archived = Day(date: legacyKey(now.addingTimeInterval(-2 * 86400)), note: "一昨日")
+        try write(State(schemaVersion: 1, revision: 9, today: previous, history: [archived]), to: subject.stateURL)
+
+        let migrated = try subject.read()
+        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: subject.stateURL)) as? [String: Any])
+
+        #expect(migrated.today.date == "2026-06-01")
+        #expect(migrated.history.map(\.date) == ["2026-05-30", "2026-05-31"])
+        #expect(migrated.history.map(\.note) == ["一昨日", "昨日"])
+        #expect(migrated.later == [unfinished])
+        #expect(migrated.revision == 10)
+        #expect(saved["schemaVersion"] as? Int == 2)
+        #expect(try subject.read() == migrated)
+    }
+
+    @Test(arguments: [Calendar.Identifier.buddhist, .japanese])
+    func testLegacyTodayKeyMigratesWithoutSpuriousRollover(identifier: Calendar.Identifier) throws {
+        let source = calendar(identifier)
+        let year = source.component(.year, from: now)
+        let subject = store(try home(), calendar: source)
+        let task = Task(title: "今日のまま", createdAt: now)
+        let day = Day(date: String(format: "%04d-06-01", year), now: [task], note: "残す")
+        try write(State(schemaVersion: 1, today: day), to: subject.stateURL)
+
+        let migrated = try subject.read()
+
+        #expect(migrated.today.date == "2026-06-01")
+        #expect(migrated.today.now == [task])
+        #expect(migrated.today.note == "残す")
+        #expect(migrated.history.isEmpty)
+        #expect(migrated.schemaVersion == 2)
+        #expect(try subject.read() == migrated)
+    }
+
+    @Test(arguments: ["0000-99-99", "0008-02-29"])
+    func testUnparseableLegacyKeysSurviveMigrationAndLaterReads(key: String) throws {
+        let subject = store(try home(), calendar: calendar(.japanese))
+        let unknown = Day(date: key, note: "解釈できなくても残す")
+        try write(State(schemaVersion: 1, today: Day(date: "0008-06-01"), history: [unknown]), to: subject.stateURL)
+
+        let migrated = try subject.read()
+
+        #expect(migrated.history == [unknown])
+        #expect(migrated.schemaVersion == 2)
+        #expect(try subject.read().history == [unknown])
     }
 
     @Test(arguments: [Calendar.Identifier.buddhist, .japanese])
@@ -104,28 +161,61 @@ final class OSSHardeningTests {
         #expect(try subject.addTask(title: "境界内").destination == .later)
     }
 
-    @Test func testExistingHomePermissionsBecomePrivate() throws {
+    @Test func testWritableHomeIsRejectedWithoutChangingPermissions() throws {
         let directory = try home()
         #expect(chmod(directory.path, 0o777) == 0)
-        _ = try store(directory).read()
+        #expect(throws: (any Error).self) { try store(directory).read() }
         let attributes = try FileManager.default.attributesOfItem(atPath: directory.path)
-        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
-        #expect((attributes[.ownerAccountID] as? NSNumber)?.uint32Value == getuid())
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o777)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
     }
 
-    @Test func testSymlinkHomeIsRejectedWithoutTouchingTarget() throws {
+    @Test func testSymlinkHomeResolvesAndUsesPrivateTarget() throws {
         let parent = try home()
         let target = try home()
+        #expect(chmod(target.path, 0o700) == 0)
+        let link = parent.appendingPathComponent("linked")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let subject = store(link)
+        let task = try subject.addTask(title: "リンク経由").task
+        #expect(try store(target).read().later.map(\.id) == [task.id])
+        #expect(subject.homeURL == target.resolvingSymlinksInPath())
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.path)
+    }
+
+    @Test(arguments: [0o720, 0o702, 0o777])
+    func testSymlinkHomeRejectsWritableTargetWithoutChangingIt(permissions: Int) throws {
+        let parent = try home()
+        let target = try home()
+        #expect(chmod(target.path, mode_t(permissions)) == 0)
         let link = parent.appendingPathComponent("linked")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
         #expect(throws: (any Error).self) { try store(link).read() }
         #expect(try FileManager.default.contentsOfDirectory(atPath: target.path).isEmpty)
+        let attributes = try FileManager.default.attributesOfItem(atPath: target.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == permissions)
+    }
+
+    @Test func testSymlinkHomeRejectsFileTargetWithActionableMessage() throws {
+        let parent = try home()
+        let target = parent.appendingPathComponent("target-file")
+        let bytes = Data("preserve".utf8)
+        try bytes.write(to: target)
+        let link = parent.appendingPathComponent("linked")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        do {
+            _ = try store(link).read()
+            Issue.record("通常ファイルをhomeとして受理した")
+        } catch {
+            #expect(String(describing: error).contains("POLARIS_HOME"))
+        }
+        #expect(try Data(contentsOf: target) == bytes)
     }
 
     @Test func testSymlinkStateIsRejectedWithoutReplacingTarget() throws {
         let directory = try home()
         let subject = store(directory)
-        let target = directory.appendingPathComponent("oss-fix-target.json")
+        let target = directory.appendingPathComponent("oss-fix2-target.json")
         try write(State(today: Day(date: "2026-06-01")), to: target)
         let original = try Data(contentsOf: target)
         try FileManager.default.createSymbolicLink(at: subject.stateURL, withDestinationURL: target)
@@ -244,19 +334,25 @@ final class OSSHardeningTests {
     }
 
 
-    @Test func testDirectorySyncFailureIsReportedAfterAtomicRename() throws {
+    @Test func testDirectorySyncFailureDoesNotFailCommittedMutation() throws {
         var subject = store(try home())
         let initial = try subject.read()
         subject.syncParent = { _ in throw POSIXError(.EIO) }
-        #expect(throws: POSIXError.self) { try subject.setNorthStar("rename済み") }
+        _ = try subject.setNorthStar("rename済み")
         let committed = try subject.read()
         #expect(committed.today.northStar == "rename済み")
         #expect(committed.revision == initial.revision + 1)
     }
 
-    @Test func testDirectoryOpenFailureIsNotIgnored() throws {
-        let missing = try home().appendingPathComponent("missing")
-        #expect(throws: POSIXError.self) { try PolarisStore.syncDirectory(missing) }
+    @Test func testDirectoryOpenFailureDoesNotThrow() throws {
+        var subject = store(try home())
+        let initial = try subject.read()
+        let missing = subject.homeURL.appendingPathComponent("missing")
+        subject.syncParent = { _ in try PolarisStore.syncDirectory(missing) }
+        let task = try subject.addTask(title: "open失敗後も成功").task
+        let committed = try subject.read()
+        #expect(committed.later.map(\.id) == [task.id])
+        #expect(committed.revision == initial.revision + 1)
     }
 
     @Test func testSnapshotSignatureMatchesItsStateDuringConcurrentWrites() throws {
@@ -307,7 +403,7 @@ final class OSSHardeningTests {
     @Test func testResetRejectsSymlinkWithoutChangingTargetOrTimestamp() throws {
         let directory = try home()
         let subject = store(directory)
-        let target = directory.appendingPathComponent("oss-fix-target.json")
+        let target = directory.appendingPathComponent("oss-fix2-target.json")
         let bytes = Data("{broken".utf8)
         try bytes.write(to: target)
         try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: target.path)
@@ -322,6 +418,135 @@ final class OSSHardeningTests {
         let attributes = try FileManager.default.attributesOfItem(atPath: target.path)
         #expect(attributes[.modificationDate] as? Date == now)
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: subject.stateURL.path) == target.path)
+    }
+
+
+    @Test func testLegacyCorruptBackupNamesAreNeverRotated() throws {
+        let subject = store(try home())
+        let legacy = subject.homeURL.appendingPathComponent("state.corrupt-2026-01-01T000000Z.json")
+        let malformedUUID = subject.homeURL.appendingPathComponent("state.corrupt-2026-01-01T000000Z-not-a-uuid.json")
+        let original = Data("old backup".utf8)
+        for url in [legacy, malformedUUID] {
+            try original.write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-86400)], ofItemAtPath: url.path)
+        }
+        var newBackups: [URL] = []
+        for index in 0..<7 {
+            try Data("{broken-\(index)".utf8).write(to: subject.stateURL)
+            newBackups.append(try #require(try subject.resetCorruptState()))
+        }
+        #expect(try Data(contentsOf: legacy) == original)
+        #expect(try Data(contentsOf: malformedUUID) == original)
+        #expect(newBackups.filter { FileManager.default.fileExists(atPath: $0.path) }.count == 5)
+    }
+
+    @Test func testBackupAttributeFailureStillWritesFreshState() throws {
+        var subject = store(try home())
+        let broken = Data("{broken attributes".utf8)
+        try broken.write(to: subject.stateURL)
+        subject.setBackupAttributes = { _ in throw POSIXError(.EPERM) }
+
+        let backup = try #require(try subject.resetCorruptState())
+
+        #expect(try Data(contentsOf: backup) == broken)
+        let fresh = try subject.read()
+        #expect(fresh.today.date == "2026-06-01")
+        #expect(fresh.revision == 1)
+        #expect(fresh.schemaVersion == 2)
+    }
+
+    @Test func testBackupDeletionFailureStillCompletesReset() throws {
+        var subject = store(try home())
+        for index in 0..<5 {
+            try Data("{old-\(index)".utf8).write(to: subject.stateURL)
+            _ = try subject.resetCorruptState()
+        }
+        let attempted = SnapshotFailures()
+        subject.removeBackup = { url in
+            attempted.record(url.lastPathComponent)
+            throw POSIXError(.EPERM)
+        }
+        let broken = Data("{new broken".utf8)
+        try broken.write(to: subject.stateURL)
+
+        let backup = try #require(try subject.resetCorruptState())
+
+        #expect(!attempted.all.isEmpty)
+        #expect(try Data(contentsOf: backup) == broken)
+        #expect(try subject.read().revision == 1)
+    }
+
+    @Test(arguments: ["0000-99-99", "0008-02-29"])
+    func testUnparseableLegacyTodayKeyIsPreserved(key: String) throws {
+        let subject = store(try home(), calendar: calendar(.japanese))
+        let unknown = Day(date: key, note: "失わない")
+        try write(State(schemaVersion: 1, today: unknown), to: subject.stateURL)
+        let migrated = try subject.read()
+        #expect(migrated.today == unknown)
+        #expect(migrated.schemaVersion == 2)
+        #expect(try subject.read() == migrated)
+    }
+
+    @MainActor @Test func testQueuedRefreshBurstRunsOnceWithoutDroppingMutations() async {
+        let queue = StateOperationQueue()
+        let started = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        var events: [String] = []
+        queue.enqueue {
+            started.continuation.yield(())
+            var iterator = release.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        var iterator = started.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        for _ in 0..<100 { queue.enqueueRefresh { events.append("refresh") } }
+        for index in 0..<3 { queue.enqueue { events.append("mutation-\(index)") } }
+        let drained = queue.enqueue { }
+        release.continuation.yield(())
+        await drained.value
+        #expect(events == ["refresh", "mutation-0", "mutation-1", "mutation-2"])
+    }
+
+    @MainActor @Test func testRefreshBurstWhileReadingSchedulesExactlyOneFollowup() async {
+        let queue = StateOperationQueue()
+        let started = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        var reads = 0
+        queue.enqueueRefresh {
+            reads += 1
+            started.continuation.yield(())
+            var iterator = release.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        var iterator = started.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        for _ in 0..<100 { queue.enqueueRefresh { reads += 1 } }
+        let drained = queue.enqueue { }
+        release.continuation.yield(())
+        await drained.value
+        #expect(reads == 2)
+        queue.enqueueRefresh { reads += 1 }
+        await queue.enqueue { }.value
+        #expect(reads == 3)
+    }
+
+    @Test func testVersionPrefersBundleExecutableURLToMisleadingArgumentZero() throws {
+        let app = try home().appendingPathComponent("Polaris.app/Contents")
+        let executable = app.appendingPathComponent("MacOS/polaris-mcp")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "3.2.1"], format: .xml, options: 0)
+        try plist.write(to: app.appendingPathComponent("Info.plist"))
+        #expect(PolarisVersion.version(executableURL: executable, fallbackPath: "polaris-mcp") == "3.2.1")
+    }
+
+    @Test func testVersionFallsBackToArgumentZeroOnlyWhenExecutableURLIsMissing() throws {
+        let app = try home().appendingPathComponent("Polaris.app/Contents")
+        let executable = app.appendingPathComponent("MacOS/polaris-mcp")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "4.5.6"], format: .xml, options: 0)
+        try plist.write(to: app.appendingPathComponent("Info.plist"))
+        #expect(PolarisVersion.version(executableURL: nil, fallbackPath: executable.path) == "4.5.6")
+        #expect(PolarisVersion.version(executableURL: URL(fileURLWithPath: "/usr/local/bin/polaris-mcp"), fallbackPath: executable.path) == PolarisVersion.defaultVersion)
     }
 
 }
