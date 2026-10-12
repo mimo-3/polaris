@@ -7,7 +7,7 @@ final class MCPServerTests {
     private var homes: [URL] = []
     deinit { for url in homes { try? FileManager.default.removeItem(at: url) } }
     private func server() throws -> MCPServer {
-        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/oss-fix-tests-\(UUID().uuidString)")
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/oss-fix2-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         homes.append(directory)
         let date = Date(timeIntervalSince1970: 1_780_272_000)
@@ -154,7 +154,7 @@ final class MCPServerTests {
     }
 
     @Test func testListAndSetModeUseEditedModes() throws {
-        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/oss-fix-tests-\(UUID().uuidString)")
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/oss-fix2-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         homes.append(directory)
         let date = Date(timeIntervalSince1970: 1_780_272_000)
