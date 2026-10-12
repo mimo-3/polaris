@@ -8,14 +8,21 @@ public struct PolarisStore: Sendable {
     public var stateURL: URL { homeURL.appendingPathComponent("state.json") }
     private let clock: @Sendable () -> Date
     private let calendar: Calendar
+    private let legacyCalendar: Calendar
     private let invalidHome: Bool
     var syncParent: @Sendable (URL) throws -> Void = PolarisStore.syncDirectory
+    var setBackupAttributes: @Sendable (URL) throws -> Void = {
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: $0.path)
+    }
+    var removeBackup: @Sendable (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
 
     public init(homeURL: URL? = nil, calendar: Calendar = .current, clock: @escaping @Sendable () -> Date = { Date() }) {
         let configured = ProcessInfo.processInfo.environment["POLARIS_HOME"]
         self.invalidHome = homeURL == nil && configured.map { !$0.hasPrefix("/") } == true
-        self.homeURL = homeURL ?? configured.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".polaris", isDirectory: true)
+        self.homeURL = (homeURL ?? configured.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".polaris", isDirectory: true))
+            .resolvingSymlinksInPath()
+        self.legacyCalendar = calendar
         var gregorian = Calendar(identifier: .gregorian)
         gregorian.timeZone = calendar.timeZone
         self.calendar = gregorian; self.clock = clock
@@ -406,20 +413,26 @@ public struct PolarisStore: Sendable {
             let backup = homeURL.appendingPathComponent("state.corrupt-\(stamp)-\(UUID().uuidString).json")
             guard Darwin.rename(stateURL.path, backup.path) == 0 else { throw posixError() }
             // 元ファイルの日時を引き継がず、退避した順で残す。
-            try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: backup.path)
+            try? setBackupAttributes(backup)
             var fresh = State(today: Day(date: dateKey(clock())))
             fresh.revision = 1
             try write(fresh)
-            let backups = try FileManager.default.contentsOfDirectory(at: homeURL, includingPropertiesForKeys: [.contentModificationDateKey])
-                .filter { $0.lastPathComponent.hasPrefix("state.corrupt-") && $0.pathExtension == "json" && $0 != backup }
+            let backups = ((try? FileManager.default.contentsOfDirectory(at: homeURL, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+                .filter { isRotatableBackup($0) && $0 != backup }
                 .sorted {
                     let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                     let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                     return left == right ? $0.lastPathComponent > $1.lastPathComponent : left > right
                 }
-            for old in backups.dropFirst(4) { try FileManager.default.removeItem(at: old) }
+            for old in backups.dropFirst(4) { try? removeBackup(old) }
             return backup
         }
+    }
+    private func isRotatableBackup(_ url: URL) -> Bool {
+        let pattern = #"^state\.corrupt-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\.json$"#
+        guard url.lastPathComponent.range(of: pattern, options: .regularExpression) != nil else { return false }
+        var info = stat()
+        return lstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG
     }
     public func history(days: Int = 90) throws -> [Day] {
         guard (1...90).contains(days) else { throw PolarisError.invalidInput("daysは1〜90です") }
@@ -486,6 +499,7 @@ public struct PolarisStore: Sendable {
             var state = try exists ? decode() : State(today: Day(date: dateKey(clock())))
             try validate(state)
             let original = state
+            if state.schemaVersion == 1 { migrateDateKeys(&state) }
             state.schemaVersion = 2
             rollover(&state, at: clock())
             let value = try body(&state)
@@ -512,16 +526,30 @@ public struct PolarisStore: Sendable {
 
     private func makeHome() throws {
         guard !invalidHome else { throw PolarisError.invalidInput("POLARIS_HOMEは絶対パスで指定してください") }
-        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o700])
         var info = stat()
-        guard lstat(homeURL.path, &info) == 0 else { throw posixError() }
-        guard info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else {
-            throw PolarisError.invalidState("保存先は自分が所有するディレクトリにしてください")
+        if lstat(homeURL.path, &info) != 0 {
+            guard errno == ENOENT else { throw homeError("保存先を確認できません（\(posixError())）") }
+            do {
+                try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true,
+                                                        attributes: [.posixPermissions: 0o700])
+            } catch { throw homeError("保存先を作成できません（\(error.localizedDescription)）") }
+            guard lstat(homeURL.path, &info) == 0 else { throw homeError("保存先を確認できません（\(posixError())）") }
+        }
+        guard info.st_mode & S_IFMT == S_IFDIR else {
+            throw homeError("リンクの解決先がディレクトリではありません")
+        }
+        guard info.st_uid == getuid() else {
+            throw homeError("保存先が現在のユーザーの所有ではありません")
+        }
+        guard info.st_mode & 0o022 == 0 else {
+            throw homeError("保存先はほかのユーザーが書き込めます。実体ディレクトリの権限をchmod go-wで修正してください")
         }
         if info.st_mode & 0o077 != 0 {
-            guard chmod(homeURL.path, 0o700) == 0 else { throw posixError() }
+            guard chmod(homeURL.path, 0o700) == 0 else { throw homeError("保存先の権限を変更できません（\(posixError())）") }
         }
+    }
+    private func homeError(_ reason: String) -> PolarisError {
+        .invalidState("\(reason)。自分が所有する安全なディレクトリの実体パスをPOLARIS_HOMEに指定してください（保存先: \(homeURL.path)）")
     }
 
     private func decode() throws -> State {
@@ -566,9 +594,41 @@ public struct PolarisStore: Sendable {
         }
     }
 
+    private func migrateDateKeys(_ state: inout State) {
+        var unconverted = Set(state.unconvertedDateKeys ?? [])
+        func convert(_ key: String) -> String {
+            guard let date = parsedDateKey(key, calendar: legacyCalendar) else {
+                unconverted.insert(key)
+                return key
+            }
+            return dateKey(date)
+        }
+        state.today.date = convert(state.today.date)
+        for index in state.history.indices { state.history[index].date = convert(state.history[index].date) }
+        // dueDate は v1 の時点でグレゴリオ暦。Date 型の日時も変換不要。
+        state.unconvertedDateKeys = unconverted.isEmpty ? nil : unconverted.sorted()
+    }
+
+    private func parsedDateKey(_ key: String, calendar: Calendar) -> Date? {
+        guard key.range(of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"#, options: .regularExpression) != nil else { return nil }
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, parts[0] > 0 else { return nil }
+        // v1 に元号は保存されていないので、注入時計の元号で解釈する。
+        let era = calendar.component(.era, from: clock())
+        let components = DateComponents(era: era, year: parts[0], month: parts[1], day: parts[2])
+        guard let date = calendar.date(from: components) else { return nil }
+        let resolved = calendar.dateComponents([.era, .year, .month, .day], from: date)
+        guard resolved.era == era, resolved.year == parts[0], resolved.month == parts[1], resolved.day == parts[2] else { return nil }
+        return date
+    }
+
     private func rollover(_ state: inout State, at now: Date) {
         let key = dateKey(now)
-        if state.today.date < key {
+        let unconverted = Set(state.unconvertedDateKeys ?? [])
+        func recognized(_ key: String) -> Bool {
+            !unconverted.contains(key) && parsedDateKey(key, calendar: calendar) != nil
+        }
+        if recognized(state.today.date) && state.today.date < key {
             var archived = state.today
             // 時計が戻ってから進んだときは同じ日付が既にある。済は足し合わせ、ほかは新しいほうを使う。
             if let i = state.history.firstIndex(where: { $0.date == archived.date }) {
@@ -590,7 +650,8 @@ public struct PolarisStore: Sendable {
             state.lastOverflow = nil
         }
         let cutoff = dateKey(calendar.date(byAdding: .day, value: -90, to: now) ?? now)
-        state.history = Array(state.history.filter { $0.date >= cutoff }
+        let unknown = state.history.filter { !recognized($0.date) }
+        state.history = unknown + Array(state.history.filter { recognized($0.date) && $0.date >= cutoff }
             .sorted { $0.date < $1.date }.suffix(90))
         if let banner = state.banner, banner.expiresAt <= now { state.banner = nil }
         if var log = state.starLog, log.count > 500 {
@@ -692,8 +753,12 @@ public struct PolarisStore: Sendable {
         }
         guard fsync(fd) == 0 else { throw posixError() }
         guard Darwin.rename(temp.path, stateURL.path) == 0 else { throw posixError() }
-        // rename 自体を電源断から守る。
-        try syncParent(homeURL)
+        // rename 後は保存済み。同期失敗を返すと MCP の再試行で二重登録される。
+        do { try syncParent(homeURL) }
+        catch {
+            let message = "Polaris: state.jsonは保存済みですが親ディレクトリの同期に失敗しました: \(error)\n"
+            try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
+        }
     }
     static func syncDirectory(_ url: URL) throws {
         let dir = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW)
