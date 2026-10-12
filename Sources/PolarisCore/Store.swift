@@ -8,11 +8,17 @@ public struct PolarisStore: Sendable {
     public var stateURL: URL { homeURL.appendingPathComponent("state.json") }
     private let clock: @Sendable () -> Date
     private let calendar: Calendar
+    private let invalidHome: Bool
+    var syncParent: @Sendable (URL) throws -> Void = PolarisStore.syncDirectory
 
     public init(homeURL: URL? = nil, calendar: Calendar = .current, clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.homeURL = homeURL ?? ProcessInfo.processInfo.environment["POLARIS_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let configured = ProcessInfo.processInfo.environment["POLARIS_HOME"]
+        self.invalidHome = homeURL == nil && configured.map { !$0.hasPrefix("/") } == true
+        self.homeURL = homeURL ?? configured.map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".polaris", isDirectory: true)
-        self.calendar = calendar; self.clock = clock
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        self.calendar = gregorian; self.clock = clock
     }
 
     public func read() throws -> State { try transaction { _ in () }.state }
@@ -59,6 +65,30 @@ public struct PolarisStore: Sendable {
             return star
         }.value
     }
+    /// キーの省略は据え置き、二重Optionalの内側のnilは消去。
+    public func updateNorthStar(id: UUID, text: String? = nil, dueDate: String?? = nil, startsAt: Date?? = nil) throws -> NorthStar {
+        try transaction { state in
+            let text = try text.map { try TextRules.checked($0, max: TextRules.northStarMax, label: "北極星") }
+            if text?.isEmpty == true { throw PolarisError.invalidInput("北極星が空です") }
+            let dueDate = try dueDate.map { try DueDate.checked($0) }
+            func update(_ star: inout NorthStar) {
+                if let text { star.text = text }
+                if let dueDate { star.dueDate = dueDate }
+                if let startsAt { star.startsAt = startsAt }
+            }
+            if var star = state.today.star, star.id == id {
+                guard startsAt == nil else { throw PolarisError.northStarNotQueued }
+                update(&star)
+                state.today.star = star
+                return star
+            }
+            var queue = state.queuedStars
+            guard let index = queue.firstIndex(where: { $0.id == id }) else { throw PolarisError.northStarNotFound }
+            update(&queue[index])
+            state.starQueue = queue
+            return queue[index]
+        }.value
+    }
     @discardableResult public func setNorthStarDue(id: UUID, dueDate: String?) throws -> State {
         let dueDate = try DueDate.checked(dueDate)
         return try transaction { state in
@@ -84,7 +114,8 @@ public struct PolarisStore: Sendable {
         }.state
     }
     /// 控えのうち `startsAt <= now` のものを、startsAt が一番早い順に1つ今日の北極星にする。
-    public func surfaceScheduledStar(now: Date = Date()) throws -> (state: State, surfaced: NorthStar?) {
+    public func surfaceScheduledStar(now: Date? = nil) throws -> (state: State, surfaced: NorthStar?) {
+        let now = now ?? clock()
         let result = try transaction { state -> NorthStar? in
             let due = state.queuedStars.enumerated()
                 .compactMap { index, star -> (Int, NorthStar, Date)? in
@@ -224,7 +255,7 @@ public struct PolarisStore: Sendable {
     @discardableResult public func upsertMode(_ mode: Mode) throws -> State {
         var mode = mode
         mode.label = try checkedModeLabel(mode.label)
-        guard !mode.id.isEmpty, mode.id.count <= TextRules.clientMax else { throw PolarisError.invalidInput("モードのidが不正です") }
+        guard !mode.id.isEmpty, mode.id.count <= TextRules.clientMax, mode.id.unicodeScalars.count <= TextRules.clientMax else { throw PolarisError.invalidInput("モードのidが不正です") }
         mode.avoidApps = try checkedApps(mode.avoidApps)
         return try transaction { state in
             var modes = state.availableModes
@@ -267,6 +298,27 @@ public struct PolarisStore: Sendable {
         return try transaction { state in
             try place(Task(title: title, createdAt: clock(), source: source, dueDate: dueDate),
                       to: to, position: position, actor: source, in: &state)
+        }.value
+    }
+    public func updateTask(id: UUID, title: String? = nil, dueDate: String?? = nil) throws -> Task {
+        try transaction { state in
+            let title = try title.map(checkedTitle)
+            let dueDate = try dueDate.map { try DueDate.checked($0) }
+            func update(_ task: inout Task) {
+                if let title { task.title = title }
+                if let dueDate { task.dueDate = dueDate }
+            }
+            if let index = state.today.now.firstIndex(where: { $0.id == id }) {
+                update(&state.today.now[index]); return state.today.now[index]
+            }
+            if let index = state.later.firstIndex(where: { $0.id == id }) {
+                update(&state.later[index]); return state.later[index]
+            }
+            if let index = state.today.done.firstIndex(where: { $0.id == id }) {
+                guard dueDate == nil else { throw PolarisError.taskNotFound }
+                update(&state.today.done[index]); return state.today.done[index]
+            }
+            throw PolarisError.taskNotFound
         }.value
     }
     @discardableResult public func setTaskDue(id: UUID, dueDate: String?) throws -> State {
@@ -339,18 +391,33 @@ public struct PolarisStore: Sendable {
         let from = TextRules.clientName(from)
         return try transaction { $0.banner = Banner(text: text, from: from, expiresAt: clock().addingTimeInterval(ttlMinutes * 60)) }.state
     }
-    /// 読めない state.json を state.corrupt-<日時>.json に退避して、新しい状態で始め直す。
+    /// 読めない state.json を state.corrupt-<日時>-<UUID>.json に退避して、新しい状態で始め直す。
     /// 読める状態なら何もしない。戻り値は退避先（退避しなかったら nil）。
     @discardableResult public func resetCorruptState() throws -> URL? {
         try withLock {
-            guard FileManager.default.fileExists(atPath: stateURL.path) else { return nil }
+            var info = stat()
+            if lstat(stateURL.path, &info) != 0 {
+                if errno == ENOENT { return nil }
+                throw posixError()
+            }
+            guard info.st_mode & S_IFMT == S_IFREG else { throw PolarisError.invalidState("通常ファイル以外は初期化できません") }
             if (try? validate(decode())) != nil { return nil }
             let stamp = ISO8601DateFormatter().string(from: clock()).replacingOccurrences(of: ":", with: "")
-            let backup = homeURL.appendingPathComponent("state.corrupt-\(stamp).json")
+            let backup = homeURL.appendingPathComponent("state.corrupt-\(stamp)-\(UUID().uuidString).json")
             guard Darwin.rename(stateURL.path, backup.path) == 0 else { throw posixError() }
+            // 元ファイルの日時を引き継がず、退避した順で残す。
+            try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: backup.path)
             var fresh = State(today: Day(date: dateKey(clock())))
             fresh.revision = 1
             try write(fresh)
+            let backups = try FileManager.default.contentsOfDirectory(at: homeURL, includingPropertiesForKeys: [.contentModificationDateKey])
+                .filter { $0.lastPathComponent.hasPrefix("state.corrupt-") && $0.pathExtension == "json" && $0 != backup }
+                .sorted {
+                    let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    return left == right ? $0.lastPathComponent > $1.lastPathComponent : left > right
+                }
+            for old in backups.dropFirst(4) { try FileManager.default.removeItem(at: old) }
             return backup
         }
     }
@@ -405,12 +472,21 @@ public struct PolarisStore: Sendable {
         return [Int64(info.st_ino), Int64(info.st_size), Int64(info.st_mtimespec.tv_sec), Int64(info.st_mtimespec.tv_nsec)]
     }
 
-    private func transaction<T>(_ body: (inout State) throws -> T) throws -> (state: State, value: T) {
+    func observedState() throws -> (state: State, signature: [Int64]?) {
+        let result = try transaction { _ in () }
+        return (result.state, result.signature)
+    }
+
+    private func transaction<T>(_ body: (inout State) throws -> T) throws -> (state: State, value: T, signature: [Int64]?) {
         try withLock {
-            let exists = FileManager.default.fileExists(atPath: stateURL.path)
+            var info = stat()
+            let status = lstat(stateURL.path, &info)
+            guard status == 0 || errno == ENOENT else { throw posixError() }
+            let exists = status == 0
             var state = try exists ? decode() : State(today: Day(date: dateKey(clock())))
             try validate(state)
             let original = state
+            state.schemaVersion = 2
             rollover(&state, at: clock())
             let value = try body(&state)
             try validate(state)
@@ -419,7 +495,7 @@ public struct PolarisStore: Sendable {
                 state.revision += 1
                 try write(state)
             }
-            return (state, value)
+            return (state, value, fileSignature())
         }
     }
 
@@ -435,13 +511,40 @@ public struct PolarisStore: Sendable {
     }
 
     private func makeHome() throws {
+        guard !invalidHome else { throw PolarisError.invalidInput("POLARIS_HOMEは絶対パスで指定してください") }
         try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
+        var info = stat()
+        guard lstat(homeURL.path, &info) == 0 else { throw posixError() }
+        guard info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else {
+            throw PolarisError.invalidState("保存先は自分が所有するディレクトリにしてください")
+        }
+        if info.st_mode & 0o077 != 0 {
+            guard chmod(homeURL.path, 0o700) == 0 else { throw posixError() }
+        }
     }
 
     private func decode() throws -> State {
+        let fd = Darwin.open(stateURL.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
+        guard fd >= 0 else { throw posixError() }
+        defer { Darwin.close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0 else { throw posixError() }
+        let maxBytes = 8 * 1024 * 1024
+        guard info.st_mode & S_IFMT == S_IFREG, info.st_size <= maxBytes else {
+            throw PolarisError.invalidState("state.jsonは8MB以下の通常ファイルにしてください")
+        }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count < 0 { if errno == EINTR { continue }; throw posixError() }
+            if count == 0 { break }
+            guard data.count + count <= maxBytes else { throw PolarisError.invalidState("state.jsonは8MB以下にしてください") }
+            data.append(contentsOf: buffer.prefix(count))
+        }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(State.self, from: Data(contentsOf: stateURL))
+        return try decoder.decode(State.self, from: data)
     }
 
     private func checkedTitle(_ title: String) throws -> String {
@@ -500,7 +603,7 @@ public struct PolarisStore: Sendable {
         return String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
     }
     private func validate(_ state: State) throws {
-        guard state.schemaVersion == 1 else { throw PolarisError.unsupportedSchema(state.schemaVersion) }
+        guard (1...2).contains(state.schemaVersion) else { throw PolarisError.unsupportedSchema(state.schemaVersion) }
         guard state.revision >= 0, state.today.now.count <= 3 else { throw PolarisError.invalidState("状態のrevisionまたはnow件数が不正です") }
         let active = state.today.now + state.later + state.today.done
         guard Set(active.map(\.id)).count == active.count,
@@ -540,14 +643,14 @@ public struct PolarisStore: Sendable {
         var apps: [String] = []
         for value in raw {
             let app = TextRules.clean(value)
-            guard !app.isEmpty, app.count <= TextRules.bundleIDMax else { throw PolarisError.invalidInput("アプリのIDが不正です") }
+            guard !app.isEmpty, app.count <= TextRules.bundleIDMax, app.unicodeScalars.count <= TextRules.bundleIDMax else { throw PolarisError.invalidInput("アプリのIDが不正です") }
             if !apps.contains(app) { apps.append(app) }
         }
         return apps
     }
     private func checkActor(_ actor: String) throws {
         guard actor == "user" || (actor.hasPrefix("mcp:") && actor.count > 4 && actor.count <= 4 + TextRules.clientMax
-                                  && TextRules.clean(actor) == actor) else { throw PolarisError.invalidInput("不正なsourceです") }
+                                  && actor.unicodeScalars.count <= 4 + TextRules.clientMax && TextRules.clean(actor) == actor) else { throw PolarisError.invalidInput("不正なsourceです") }
     }
     private func place(_ task: Task, to: TaskDestination, position: Int?, actor: String, in state: inout State) throws -> Placement {
         guard position == nil || position! >= 0 else { throw PolarisError.invalidInput("positionは0以上です") }
@@ -559,6 +662,7 @@ public struct PolarisStore: Sendable {
         if destination == .now {
             state.today.now.insert(task, at: min(position ?? state.today.now.count, state.today.now.count))
         } else {
+            guard state.later.count < TextRules.laterMax else { throw PolarisError.invalidInput("あとでは\(TextRules.laterMax)件までです") }
             state.later.insert(task, at: min(overflow ? state.later.count : (position ?? state.later.count), state.later.count))
         }
         return Placement(task: task, destination: destination, overflowed: overflow)
@@ -572,6 +676,7 @@ public struct PolarisStore: Sendable {
     private func write(_ state: State) throws {
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(state)
+        guard data.count <= 8 * 1024 * 1024 else { throw PolarisError.invalidState("state.jsonは8MB以下にしてください") }
         let temp = homeURL.appendingPathComponent("polaris-backend-\(UUID().uuidString).tmp")
         let fd = Darwin.open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw posixError() }
@@ -588,8 +693,13 @@ public struct PolarisStore: Sendable {
         guard fsync(fd) == 0 else { throw posixError() }
         guard Darwin.rename(temp.path, stateURL.path) == 0 else { throw posixError() }
         // rename 自体を電源断から守る。
-        let dir = Darwin.open(homeURL.path, O_RDONLY | O_CLOEXEC)
-        if dir >= 0 { _ = fsync(dir); Darwin.close(dir) }
+        try syncParent(homeURL)
+    }
+    static func syncDirectory(_ url: URL) throws {
+        let dir = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW)
+        guard dir >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(dir) }
+        guard fsync(dir) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
     private func posixError() -> POSIXError { POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 }
@@ -605,7 +715,7 @@ private final class WatchLifetime: @unchecked Sendable {
 private final class StateObserver: @unchecked Sendable {
     let store: PolarisStore
     let continuation: AsyncStream<Result<State, Error>>.Continuation
-    var revision: Int?
+    var lastState: State?
     var signature: [Int64]?
     var boundary = Date.distantPast
     var failing = false
@@ -616,13 +726,14 @@ private final class StateObserver: @unchecked Sendable {
         let current = store.fileSignature()
         guard force || failing || current != signature || store.currentTime() >= boundary else { return }
         do {
-            let state = try store.read()
-            // read がロールオーバーで書いた分も含めて覚える。
-            signature = store.fileSignature()
+            let snapshot = try store.observedState()
+            let state = snapshot.state
+            // 状態と同じロック内で取った署名だけを覚える。
+            signature = snapshot.signature
             boundary = store.nextBoundary(for: state)
-            if failing || state.revision != revision {
+            if failing || state != lastState {
                 failing = false
-                revision = state.revision
+                lastState = state
                 continuation.yield(.success(state))
             }
         } catch {
