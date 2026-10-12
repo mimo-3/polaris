@@ -5,7 +5,11 @@ public enum PolarisVersion {
 
     /// 同梱 MCP も署名済みアプリのバージョンを使う。単体バイナリは既定値。
     public static var current: String {
-        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        version(executableURL: Bundle.main.executableURL, fallbackPath: CommandLine.arguments[0])
+    }
+
+    static func version(executableURL: URL?, fallbackPath: String) -> String {
+        let executable = (executableURL ?? URL(fileURLWithPath: fallbackPath)).resolvingSymlinksInPath()
         guard executable.deletingLastPathComponent().lastPathComponent == "MacOS" else { return defaultVersion }
         let plist = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Info.plist")
         return version(infoPlistURL: plist)
