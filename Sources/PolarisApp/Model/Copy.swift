@@ -9,8 +9,8 @@ enum Copy {
     static func modeMenu(_ label: String) -> String { "モード、\(label)。押すと切り替える" }
     static let northStarEmptyHint = "押すと今日の北極星を書ける"
     static let settingsDisplay = "表示"
-    static let settingsOpacity = "付箋の透明度"
-    static let settingsOpacityDetail = "閉じているときだけ。開くと元の濃さに戻る"
+    static let settingsOpacity = "付箋の地の透明度"
+    static let settingsOpacityDetail = "閉じているときだけ。文字は薄くならない"
     static let settingsClickThrough = "閉じた付箋のクリックを通す"
     static let settingsClickThroughDetail = "後ろの窓を触れる。脇のつまみで開く・動かす（⌃⌥T）"
     static let settingsCelebrate = "達成したときの演出"

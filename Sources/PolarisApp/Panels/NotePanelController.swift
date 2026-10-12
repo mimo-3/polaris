@@ -334,8 +334,6 @@ struct NotePanelRoot: View {
             if !model.corner.isTop { Spacer(minLength: 0) }
             NoteCard()
                 .fixedSize(horizontal: false, vertical: true)
-                // 濃さの設定は閉じているときだけ効かせる。開いたら読みやすさを優先して 1 にする。
-                .opacity(model.expanded ? 1 : model.noteOpacity)
                 .animation(PolarisTheme.Motion.expand(model.theme.reduceMotion), value: model.expanded)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { onHeight($0) }
                 .gesture(DragGesture(minimumDistance: 3)

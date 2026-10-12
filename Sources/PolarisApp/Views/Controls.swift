@@ -4,8 +4,10 @@ import SwiftUI
 // MARK: - 地
 
 /// 素材 → surface 92% → hairline の3層。Increase Contrast では外周に border を足す。
+/// opacity は地だけに掛ける。中の文字まで薄くしないため。
 struct PanelBackground: View {
     var radius: CGFloat
+    var opacity: Double = 1
     @Environment(\.polaris) private var theme
 
     var body: some View {
@@ -23,6 +25,7 @@ struct PanelBackground: View {
                 shape.strokeBorder(PolarisTheme.Palette.hairline, lineWidth: PolarisTheme.Material.hairlineWidth)
             }
         }
+        .opacity(opacity)
     }
 }
 
