@@ -11,6 +11,9 @@ public struct MCPServer: Sendable {
 
     /// 1行の上限。超えた行は読み捨てて Invalid Request を返す。
     public static let maxLineBytes = 1 << 20
+    public static func parseErrorResponse() -> String {
+        #"{"error":{"code":-32700,"message":"Parse error"},"id":null,"jsonrpc":"2.0"}"#
+    }
     public static func tooLongResponse() -> String {
         #"{"error":{"code":-32600,"message":"Request too large"},"id":null,"jsonrpc":"2.0"}"#
     }
@@ -49,10 +52,10 @@ public struct MCPServer: Sendable {
             }
             clientName = TextRules.clientName(name)
             initialized = true
-            let supported = ["2024-11-05", "2025-03-26", "2025-06-18"]
+            let supported = ["2024-11-05", "2025-06-18"]
             result = ["protocolVersion": supported.contains(version) ? version : "2025-06-18",
                       "capabilities": ["tools": ["listChanged": false]],
-                      "serverInfo": ["name": "polaris", "version": "1.0.0"]]
+                      "serverInfo": ["name": "polaris", "version": PolarisVersion.current]]
         case "ping": result = [:]
         case "tools/list": result = ["tools": Self.definitions]
         case "tools/call":
@@ -104,19 +107,7 @@ public struct MCPServer: Sendable {
                 guard let text = a["text"] as? String else { throw PolarisError.invalidInput("textは文字列です") }
                 return text
             }()
-            // startsAt は控えだけ。先に確かめてから他の変更を書く。
-            if startsAt != nil {
-                let s = try store.read()
-                if s.today.star?.id == id { throw PolarisError.northStarNotQueued }
-                if !s.queuedStars.contains(where: { $0.id == id }) { throw PolarisError.northStarNotFound }
-            }
-            if let text { _ = try store.renameNorthStar(id: id, text: text) }
-            if case .some(let value) = dueDate { _ = try store.setNorthStarDue(id: id, dueDate: value) }
-            if case .some(let value) = startsAt { _ = try store.setNorthStarStart(id: id, startsAt: value) }
-            let s = try store.read()
-            if let star = s.today.star, star.id == id { return try json(star) }
-            if let star = s.queuedStars.first(where: { $0.id == id }) { return try json(star) }
-            throw PolarisError.northStarNotFound
+            return try json(store.updateNorthStar(id: id, text: text, dueDate: dueDate, startsAt: startsAt))
         case "polaris_complete_north_star":
             let outcome = (a["outcome"] as? String).flatMap(NorthStarOutcome.init(rawValue:)) ?? .achieved
             let result = try store.completeNorthStar(outcome: outcome)
@@ -134,26 +125,15 @@ public struct MCPServer: Sendable {
                                           dueDate: a["dueDate"] as? String))
         case "polaris_update_task":
             let id = try uuid(a)
-            if a.keys.contains("title") {
-                guard let title = a["title"] as? String else { throw PolarisError.invalidInput("titleは文字列です") }
-                _ = try store.renameTask(id: id, title: title)
-            }
-            if a.keys.contains("dueDate") {
-                _ = try store.setTaskDue(id: id, dueDate: try optionalString(a["dueDate"], label: "dueDate"))
-            }
-            let s = try store.read()
-            if let task = s.today.now.first(where: { $0.id == id })
-                ?? s.later.first(where: { $0.id == id })
-                ?? s.today.done.first(where: { $0.id == id }) {
-                return try json(task)
-            }
-            throw PolarisError.taskNotFound
+            let dueDate: String?? = a.keys.contains("dueDate")
+                ? .some(try optionalString(a["dueDate"], label: "dueDate")) : .none
+            return try json(store.updateTask(id: id, title: a["title"] as? String, dueDate: dueDate))
         case "polaris_complete_task": return try json(store.completeTask(id: try uuid(a)).today)
         case "polaris_move_task": return try json(store.moveTask(id: try uuid(a), to: TaskDestination(rawValue: a["to"] as! String)!, position: integer(a["position"]), actor: "mcp:\(clientName)"))
         case "polaris_remove_task": return try json(store.removeTask(id: try uuid(a)).today)
         case "polaris_rename_task": return try json(store.renameTask(id: try uuid(a), title: a["title"] as! String).today)
         case "polaris_list_later": return try json(store.read().later)
-        case "polaris_nudge": return try json(store.nudge(text: a["text"] as! String, from: clientName, ttlMinutes: (a["ttl_minutes"] as? NSNumber)?.doubleValue ?? 5).banner)
+        case "polaris_nudge": return try json(store.nudge(text: a["text"] as! String, from: "MCP: \(clientName)", ttlMinutes: (a["ttl_minutes"] as? NSNumber)?.doubleValue ?? 5).banner)
         case "polaris_get_history": return try json(store.history(days: integer(a["days"]) ?? 90))
         default: throw PolarisError.invalidInput("未知のツール: \(name)")
         }
@@ -201,7 +181,7 @@ public struct MCPServer: Sendable {
             }
             let primary = types.first { $0 != "null" }
             if primary == "string" && !(value is String) { throw PolarisError.invalidInput("\(key)は文字列です") }
-            if let max = property["maxLength"] as? Int, let text = value as? String, text.count > max {
+            if let max = property["maxLength"] as? Int, let text = value as? String, (text.count > max || text.unicodeScalars.count > max) {
                 throw PolarisError.invalidInput("\(key)は\(max)文字以内です")
             }
             if primary == "integer" && integer(value) == nil { throw PolarisError.invalidInput("\(key)は0以上の整数です") }
@@ -212,7 +192,9 @@ public struct MCPServer: Sendable {
         }
     }
     private func validID(_ value: Any) -> Bool {
-        value is NSNull || value is String || ((value as? NSNumber).map { CFGetTypeID($0) != CFBooleanGetTypeID() } ?? false)
+        if value is String { return true }
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return false }
+        return number.doubleValue.isFinite && number.doubleValue.rounded() == number.doubleValue
     }
     private func json<T: Encodable>(_ value: T) throws -> Any {
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
