@@ -18,7 +18,7 @@ struct SettingsView: View {
 
     private var mcpCommand: String {
         let bin = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/polaris-mcp").path
-        return "claude mcp add polaris -- \(bin)"
+        return "claude mcp add polaris -- \(ShellCommand.quote(bin))"
     }
 
     var body: some View {
