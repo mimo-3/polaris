@@ -173,6 +173,8 @@ public struct State: Codable, Sendable, Equatable {
     public var starQueue: [NorthStar]?
     /// 終わった北極星。キーが無い古い状態では nil。
     public var starLog: [NorthStar]?
+    /// 旧暦で解釈できなかったキー。v2 再読込でも履歴の整理から保護する。
+    var unconvertedDateKeys: [String]?
 
     public init(schemaVersion: Int = 2, revision: Int = 0, today: Day, later: [Task] = [], banner: Banner? = nil,
                 history: [Day] = [], lastOverflow: OverflowEvent? = nil, modes: [Mode]? = nil,
