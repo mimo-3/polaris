@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+version="${VERSION:-$(sed -n 's/.*static let defaultVersion = "\([^"]*\)".*/\1/p' Sources/PolarisCore/PolarisVersion.swift)}"
+[[ -n "$version" ]] || { echo "VERSION が空です" >&2; exit 1; }
 swift build -c release
 bin_dir="$(swift build -c release --show-bin-path)"
 app="build/Polaris.app"
@@ -24,13 +26,21 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+python3 - "$app/Contents/Info.plist" "${BUNDLE_IDENTIFIER:-dev.mimo.polaris}" "$version" "${BUILD_NUMBER:-1}" <<'PYPLIST'
+import plistlib
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+info = plistlib.loads(path.read_bytes())
+info.update(CFBundleIdentifier=sys.argv[2], CFBundleShortVersionString=sys.argv[3], CFBundleVersion=sys.argv[4])
+path.write_bytes(plistlib.dumps(info))
+PYPLIST
 # An optional native icon can be supplied by the UI implementation.
 if [[ -f Resources/Polaris.icns ]]; then
     cp Resources/Polaris.icns "$app/Contents/Resources/Polaris.icns"
     /usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string Polaris' "$app/Contents/Info.plist"
 fi
-identity="$(security find-identity -v -p codesigning | awk '/Developer ID Application:/ {print $2; exit}')"
-identity="${identity:--}"
+identity="${SIGNING_IDENTITY:--}"
 # Notarization requires a secure timestamp, which ad-hoc signatures cannot carry.
 timestamp=()
 [[ "$identity" != "-" ]] && timestamp=(--timestamp)
