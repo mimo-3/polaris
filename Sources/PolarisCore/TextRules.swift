@@ -2,6 +2,7 @@ import Foundation
 
 /// 状態ファイルに入る文字列の上限と正規化。アプリと MCP の両方がストア経由でこれを通る。
 public enum TextRules {
+    public static let laterMax = 200
     public static let titleMax = 200
     public static let northStarMax = 200
     public static let starQueueMax = 20
@@ -27,13 +28,13 @@ public enum TextRules {
     /// 正規化してから上限を確かめる。超えたら invalidInput。
     public static func checked(_ text: String, max: Int, label: String) throws -> String {
         let cleaned = clean(text)
-        guard cleaned.count <= max else { throw PolarisError.invalidInput("\(label)は\(max)文字以内にしてください") }
+        guard cleaned.count <= max, cleaned.unicodeScalars.count <= max else { throw PolarisError.invalidInput("\(label)は\(max)文字以内にしてください") }
         return cleaned
     }
 
     /// MCP のクライアント名。拒否はせず、正規化して上限で切る。空なら unknown。
     public static func clientName(_ raw: String) -> String {
-        let cleaned = String(clean(raw).prefix(clientMax))
+        let cleaned = String(String.UnicodeScalarView(clean(raw).unicodeScalars.prefix(clientMax)))
         return cleaned.isEmpty ? "unknown" : cleaned
     }
 
