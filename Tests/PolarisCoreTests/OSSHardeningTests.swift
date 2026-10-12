@@ -16,7 +16,7 @@ final class OSSHardeningTests {
     deinit { for home in homes { try? FileManager.default.removeItem(at: home) } }
     private func home() throws -> URL {
         let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("oss-fix2-tests-\(UUID().uuidString)")
+            .appendingPathComponent("polaris-test-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         homes.append(url)
         return url
@@ -215,7 +215,7 @@ final class OSSHardeningTests {
     @Test func testSymlinkStateIsRejectedWithoutReplacingTarget() throws {
         let directory = try home()
         let subject = store(directory)
-        let target = directory.appendingPathComponent("oss-fix2-target.json")
+        let target = directory.appendingPathComponent("polaris-test-target.json")
         try write(State(today: Day(date: "2026-06-01")), to: target)
         let original = try Data(contentsOf: target)
         try FileManager.default.createSymbolicLink(at: subject.stateURL, withDestinationURL: target)
@@ -403,7 +403,7 @@ final class OSSHardeningTests {
     @Test func testResetRejectsSymlinkWithoutChangingTargetOrTimestamp() throws {
         let directory = try home()
         let subject = store(directory)
-        let target = directory.appendingPathComponent("oss-fix2-target.json")
+        let target = directory.appendingPathComponent("polaris-test-target.json")
         let bytes = Data("{broken".utf8)
         try bytes.write(to: target)
         try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: target.path)
