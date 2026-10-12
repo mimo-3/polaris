@@ -12,7 +12,7 @@ if [[ "$signature" != *$'\nAuthority=Developer ID Application:'* ]]; then
     echo "Developer ID Application で署名されていません" >&2
     exit 1
 fi
-staging="$(mktemp -d "$PWD/build/oss-fix-release-XXXXXX")"
+staging="$(mktemp -d "$PWD/build/polaris-release-XXXXXX")"
 mount=""
 cleanup() {
     if [[ -n "$mount" ]]; then
@@ -37,7 +37,7 @@ if [[ "$status" != "Accepted" ]]; then
 fi
 xcrun stapler staple "$dmg"
 spctl -a -t open --context context:primary-signature -v "$dmg"
-mount="$(mktemp -d "$PWD/build/oss-fix-release-XXXXXX")"
+mount="$(mktemp -d "$PWD/build/polaris-release-XXXXXX")"
 hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null
 spctl -a -vv -t exec "$mount/Polaris.app"
 echo "Created $dmg"
