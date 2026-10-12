@@ -23,7 +23,8 @@ struct NoteCard: View {
             }
         }
         .frame(width: PolarisTheme.Metrics.noteWidth, alignment: .leading)
-        .background(PanelBackground(radius: PolarisTheme.Radius.note))
+        // 濃さの設定は閉じているときの地だけに効かせる。文字は薄くしない。
+        .background(PanelBackground(radius: PolarisTheme.Radius.note, opacity: model.expanded ? 1 : model.noteOpacity))
         .contentShape(RoundedRectangle(cornerRadius: PolarisTheme.Radius.note, style: .continuous))
         .onTapGesture { if !model.isDayClosed { model.togglePin() } }
         .accessibilityElement(children: .contain)
