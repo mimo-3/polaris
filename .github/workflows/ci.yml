@@ -1,14 +1,25 @@
 name: CI
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
-    runs-on: macos-latest
+    runs-on: macos-15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Select Xcode
+        run: |
+          developer_dir=/Applications/Xcode_16.4.app/Contents/Developer
+          test -d "$developer_dir" || { echo "Xcode 16.4 is missing from this runner" >&2; exit 1; }
+          sudo xcode-select --switch "$developer_dir"
+          xcodebuild -version
       - name: Build
         run: swift build
       - name: Test
