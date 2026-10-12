@@ -1,0 +1,17 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Test
+        run: make test
+      - name: Backend smoke
+        run: python3 scripts/polaris-backend-smoke.py
