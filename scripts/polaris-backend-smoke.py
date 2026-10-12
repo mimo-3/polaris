@@ -18,7 +18,7 @@ def request(identifier, method, params=None):
     return result
 
 
-with tempfile.TemporaryDirectory(prefix="oss-fix-smoke-", dir=Path(__file__).resolve().parent.parent / ".build") as home:
+with tempfile.TemporaryDirectory(prefix="polaris-smoke-", dir=Path(__file__).resolve().parent.parent / ".build") as home:
     environment = dict(os.environ, POLARIS_HOME=home)
 
     def exchange(messages):
