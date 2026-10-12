@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 version="${VERSION:-$(sed -n 's/.*static let defaultVersion = "\([^"]*\)".*/\1/p' Sources/PolarisCore/PolarisVersion.swift)}"
 [[ -n "$version" ]] || { echo "VERSION が空です" >&2; exit 1; }
+build_number="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 swift build -c release
 bin_dir="$(swift build -c release --show-bin-path)"
 app="build/Polaris.app"
@@ -26,7 +27,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-python3 - "$app/Contents/Info.plist" "${BUNDLE_IDENTIFIER:-dev.mimo.polaris}" "$version" "${BUILD_NUMBER:-1}" <<'PYPLIST'
+python3 - "$app/Contents/Info.plist" "${BUNDLE_IDENTIFIER:-dev.mimo.polaris}" "$version" "$build_number" <<'PYPLIST'
 import plistlib
 import sys
 from pathlib import Path
