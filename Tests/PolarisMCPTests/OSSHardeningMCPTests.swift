@@ -8,7 +8,7 @@ final class OSSHardeningMCPTests {
     deinit { for home in homes { try? FileManager.default.removeItem(at: home) } }
     private func session(name: String = "test", version: String = "2025-06-18") throws -> (MCPServer, PolarisStore, [String: Any]) {
         let home = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("oss-fix-mcp-tests-\(UUID().uuidString)")
+            .appendingPathComponent("oss-fix2-mcp-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         homes.append(home)
         let date = Date(timeIntervalSince1970: 1_780_272_000)
@@ -99,6 +99,18 @@ final class OSSHardeningMCPTests {
         #expect(try store.read().banner?.from == "MCP: Polaris 通知")
     }
 
+    @Test(arguments: [String(repeating: "a", count: 100), String(repeating: "星", count: 100)])
+    func testNudgeTruncatesSenderAfterAddingMCPPrefix(name: String) throws {
+        var (server, store, _) = try session(name: name)
+
+        let result = try call(&server, name: "polaris_nudge", arguments: ["text": "戻ろう"])
+
+        #expect(result["isError"] as? Bool == false)
+        let sender = try #require(store.read().banner?.from)
+        #expect(sender == "MCP: " + String(name.prefix(TextRules.clientMax - 5)))
+        #expect(sender.unicodeScalars.count == TextRules.clientMax)
+    }
+
     @Test func testCombiningScalarBombReturnsToolError() throws {
         var (server, store, _) = try session()
         let before = try store.read()
@@ -138,13 +150,13 @@ final class OSSHardeningMCPTests {
 
     @Test func testRelativePolarisHomeIsRejectedByMCPProcess() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let directory = root.appendingPathComponent("oss-fix-relative-\(UUID().uuidString)")
+        let directory = root.appendingPathComponent("oss-fix2-relative-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         homes.append(directory)
         let process = Process()
         process.executableURL = root.appendingPathComponent(".build/debug/polaris-mcp")
         process.currentDirectoryURL = directory
-        process.environment = ProcessInfo.processInfo.environment.merging(["POLARIS_HOME": "oss-fix-not-absolute"]) { _, new in new }
+        process.environment = ProcessInfo.processInfo.environment.merging(["POLARIS_HOME": "oss-fix2-not-absolute"]) { _, new in new }
         let input = Pipe()
         let output = Pipe()
         process.standardInput = input
@@ -166,7 +178,7 @@ final class OSSHardeningMCPTests {
         let last = try #require(lines.last)
         let reply = try #require(JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any])
         #expect((reply["result"] as? [String: Any])?["isError"] as? Bool == true)
-        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("oss-fix-not-absolute").path))
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("oss-fix2-not-absolute").path))
     }
 
 }
