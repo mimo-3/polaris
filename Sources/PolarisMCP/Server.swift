@@ -133,7 +133,7 @@ public struct MCPServer: Sendable {
         case "polaris_remove_task": return try json(store.removeTask(id: try uuid(a)).today)
         case "polaris_rename_task": return try json(store.renameTask(id: try uuid(a), title: a["title"] as! String).today)
         case "polaris_list_later": return try json(store.read().later)
-        case "polaris_nudge": return try json(store.nudge(text: a["text"] as! String, from: "MCP: \(clientName)", ttlMinutes: (a["ttl_minutes"] as? NSNumber)?.doubleValue ?? 5).banner)
+        case "polaris_nudge": return try json(store.nudge(text: a["text"] as! String, from: TextRules.clientName("MCP: \(clientName)"), ttlMinutes: (a["ttl_minutes"] as? NSNumber)?.doubleValue ?? 5).banner)
         case "polaris_get_history": return try json(store.history(days: integer(a["days"]) ?? 90))
         default: throw PolarisError.invalidInput("未知のツール: \(name)")
         }
