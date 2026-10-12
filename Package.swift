@@ -31,7 +31,8 @@ let package = Package(
         .executableTarget(name: "PolarisApp", dependencies: ["PolarisCore"]),
         .executableTarget(name: "polaris-mcp", dependencies: ["PolarisMCP"]),
         .testTarget(name: "PolarisCoreTests", dependencies: ["PolarisCore"], swiftSettings: testSwiftSettings, linkerSettings: testLinkerSettings),
-        .testTarget(name: "PolarisMCPTests", dependencies: ["PolarisMCP"], swiftSettings: testSwiftSettings, linkerSettings: testLinkerSettings)
+        .testTarget(name: "PolarisMCPTests", dependencies: ["PolarisMCP"], swiftSettings: testSwiftSettings, linkerSettings: testLinkerSettings),
+        .testTarget(name: "PolarisAppTests", dependencies: ["PolarisApp"], swiftSettings: testSwiftSettings, linkerSettings: testLinkerSettings)
     ],
     swiftLanguageModes: [.v6]
 )
