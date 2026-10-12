@@ -10,7 +10,7 @@ else
     test_flags=()
 fi
 mkdir -p .build
-log="$(mktemp "$PWD/.build/oss-fix-tests-XXXXXX")"
+log="$(mktemp "$PWD/.build/polaris-tests-XXXXXX")"
 trap 'rm -f "$log"' EXIT
 swift test ${test_flags[@]+"${test_flags[@]}"} "$@" 2>&1 | tee "$log"
 # XCTest の0件表示ではなく Swift Testing の実行結果を確認する。
