@@ -182,7 +182,7 @@ final class NoteModel {
                 for await _ in store.changes() {
                     guard let self else { return }
                     // 通知に付いた古い状態は使わず、操作と同じ列で最新状態を読む。
-                    self.operations.enqueue { [weak self] in
+                    self.operations.enqueueRefresh { [weak self] in
                         let result = await _Concurrency.Task.detached { Result { try store.read() } }.value
                         guard let self else { return }
                         switch result {
