@@ -10,7 +10,7 @@ final class OSSIntegrationTests {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     }
     private func home() throws -> URL {
-        let directory = root.appendingPathComponent("oss-fix2-integration-\(UUID().uuidString)")
+        let directory = root.appendingPathComponent("polaris-test-integration-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         homes.append(directory)
         return directory
@@ -35,7 +35,7 @@ final class OSSIntegrationTests {
 
     @Test func testShellQuotedPathSurvivesSpacesQuotesAndSubstitutions() throws {
         let directory = try home()
-        let marker = directory.appendingPathComponent("oss-fix2-injected")
+        let marker = directory.appendingPathComponent("polaris-test-injected")
         let path = "/Applications/Mimo's $(touch \(marker.path)) `echo wrong` Polaris.app/bin"
         let result = try run("/bin/sh", arguments: ["-c", "printf '%s' " + ShellCommand.quote(path)])
         #expect(result.status == 0)
@@ -120,7 +120,7 @@ final class OSSIntegrationTests {
         let scripts = fixture.appendingPathComponent("scripts")
         let commands = fixture.appendingPathComponent("commands")
         let destination = fixture.appendingPathComponent("Applications")
-        let stagingLog = fixture.appendingPathComponent("oss-fix2-staging.log")
+        let stagingLog = fixture.appendingPathComponent("polaris-test-staging.log")
         for directory in [scripts, commands, destination] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
@@ -153,7 +153,7 @@ final class OSSIntegrationTests {
         try Data("previous".utf8).write(to: previous.appendingPathComponent("marker"))
         try Data("candidate".utf8).write(to: candidate.appendingPathComponent("marker"))
         // Inject only the OS call boundary; execute the real installer Python body.
-        let injector = fixture.appendingPathComponent("oss-fix2-unsupported-swap.py")
+        let injector = fixture.appendingPathComponent("polaris-test-unsupported-swap.py")
         try Data("""
         import ctypes
         import errno
@@ -207,7 +207,7 @@ final class OSSIntegrationTests {
         let fixture = try home()
         let commands = fixture.appendingPathComponent("commands")
         try FileManager.default.createDirectory(at: commands, withIntermediateDirectories: true)
-        let selected = fixture.appendingPathComponent("oss-fix2-selected")
+        let selected = fixture.appendingPathComponent("polaris-test-selected")
         for command in ["sudo", "xcode-select"] {
             try script("#!/bin/sh\ntouch " + ShellCommand.quote(selected.path) + "\n", at: commands.appendingPathComponent(command))
         }
@@ -258,7 +258,7 @@ final class OSSIntegrationTests {
         try script(gitAvailable
             ? "#!/bin/sh\n[ \"$*\" = 'rev-list --count HEAD' ] || exit 2\nprintf '%s\\n' 137\n"
             : "#!/bin/sh\nexit 127\n", at: commands.appendingPathComponent("git"))
-        let log = fixture.appendingPathComponent("oss-fix2-codesign.log")
+        let log = fixture.appendingPathComponent("polaris-test-codesign.log")
         let result = try run("/bin/bash", arguments: [scripts.appendingPathComponent("bundle.sh").path], environment: [
             "PATH": commands.path + ":/usr/bin:/bin",
             "POLARIS_TEST_BIN_DIR": binaries.path,
@@ -284,7 +284,7 @@ final class OSSIntegrationTests {
         let scripts = fixture.appendingPathComponent("scripts")
         try FileManager.default.createDirectory(at: scripts, withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: root.appendingPathComponent("scripts/release.sh"), to: scripts.appendingPathComponent("release.sh"))
-        let marker = fixture.appendingPathComponent("oss-fix2-built")
+        let marker = fixture.appendingPathComponent("polaris-test-built")
         try script("#!/bin/sh\ntouch " + ShellCommand.quote(marker.path) + "\n", at: scripts.appendingPathComponent("bundle.sh"))
         let result = try run("/bin/bash", arguments: [scripts.appendingPathComponent("release.sh").path], environment: ["SIGNING_IDENTITY": identity])
         #expect(result.status != 0)
