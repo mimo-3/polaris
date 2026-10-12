@@ -189,7 +189,8 @@ enum Copy {
 
     /// MCP クライアント名を人が読む名前にする。知らない名前はそのまま出す。
     static func clientName(_ raw: String) -> String {
-        let name = raw.hasPrefix("mcp:") ? String(raw.dropFirst(4)) : raw
+        let name = raw.lowercased().hasPrefix("mcp:")
+            ? String(raw.dropFirst(4)).trimmingCharacters(in: .whitespaces) : raw
         let known = ["claude-code": "Claude Code", "claude-ai": "Claude", "claude": "Claude",
                      "codex": "Codex", "codex-mcp-client": "Codex", "cursor": "Cursor", "cursor-vscode": "Cursor"]
         return known[name.lowercased()] ?? name
