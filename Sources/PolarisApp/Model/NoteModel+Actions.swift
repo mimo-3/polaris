@@ -13,10 +13,10 @@ extension NoteModel {
     // MARK: 北極星の控え
 
     /// 今日の北極星を終えて、控えの先頭を繰り上げる。
-    func endNorthStar(achieved: Bool = true) {
-        guard state.today.star != nil else { return }
+    func endNorthStar(id: UUID, achieved: Bool = true) {
+        guard state.today.star?.id == id else { return }
         run({ store -> (NorthStar, NorthStar?) in
-            let result = try store.completeNorthStar(outcome: achieved ? .achieved : .dropped)
+            let result = try store.completeNorthStar(id: id, outcome: achieved ? .achieved : .dropped)
             return (result.completed, result.next)
         }) { [weak self] completed, next in
             guard let self else { return }
@@ -146,7 +146,7 @@ extension NoteModel {
 
     /// 控えの行のボタン: 今日の北極星があれば［達成した］、なければ控えの先頭を［これにする］。
     func performStarQueueAction() {
-        if state.today.star != nil { endNorthStar() }
+        if let star = state.today.star { endNorthStar(id: star.id) }
         else if let next = state.queuedStars.first { activateNorthStar(next.id) }
     }
 

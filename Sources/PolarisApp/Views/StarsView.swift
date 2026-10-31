@@ -66,9 +66,9 @@ struct StarsView: View {
                 HStack(spacing: S.s) {
                     if let since = star.activatedAt { MetaText(text: StarDates.since(since)) }
                     Spacer(minLength: 0)
-                    Button(Copy.starDrop) { model.endNorthStar(achieved: false) }
+                    Button(Copy.starDrop) { model.endNorthStar(id: star.id, achieved: false) }
                         .buttonStyle(SmallButtonStyle())
-                    Button(Copy.starAchieved) { model.endNorthStar() }
+                    Button(Copy.starAchieved) { model.endNorthStar(id: star.id) }
                         .buttonStyle(SmallButtonStyle(outlined: true))
                 }
             }

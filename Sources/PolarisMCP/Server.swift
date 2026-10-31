@@ -110,7 +110,8 @@ public struct MCPServer: Sendable {
             return try json(store.updateNorthStar(id: id, text: text, dueDate: dueDate, startsAt: startsAt))
         case "polaris_complete_north_star":
             let outcome = (a["outcome"] as? String).flatMap(NorthStarOutcome.init(rawValue:)) ?? .achieved
-            let result = try store.completeNorthStar(outcome: outcome)
+            let id = try a.keys.contains("id") ? uuid(a) : nil
+            let result = try store.completeNorthStar(id: id, outcome: outcome)
             return ["completed": try json(result.completed), "next": try result.next.map { try json($0) } ?? NSNull()]
         case "polaris_switch_north_star": return try dayJSON(store.activateNorthStar(id: try uuid(a)).today)
         case "polaris_remove_north_star": return try json(store.removeNorthStar(id: try uuid(a)).queuedStars)
@@ -223,8 +224,8 @@ public struct MCPServer: Sendable {
                  ["text": starText.merging(["minLength": 1]) { $1 }, "position": starPosition, "dueDate": dueDate, "startsAt": startsAt], ["text"]),
             tool("polaris_update_north_star", "北極星の文面・期限・予約を更新する。キーが無ければ据え置き、dueDate/startsAtがnullなら消す。startsAtは控えだけに付けられる。",
                  ["id": id, "text": starText.merging(["minLength": 1]) { $1 }, "dueDate": dueDateOrNull, "startsAt": startsAtOrNull], ["id"]),
-            tool("polaris_complete_north_star", "今日の北極星を終え、控えのうち予約なしまたは開始時刻を過ぎた最初の星を今日にする。未来予約の星は飛ばす。",
-                 ["outcome": ["type": "string", "enum": ["achieved", "dropped"], "default": "achieved"]]),
+            tool("polaris_complete_north_star", "今日の北極星を終え、控えのうち予約なしまたは開始時刻を過ぎた最初の星を今日にする。未来予約の星は飛ばす。任意のidを指定すると今日の星と一致する場合だけ終える。不一致なら変更せずエラー。連続実行による次の星の終了を防ぐにはidを指定する。",
+                 ["id": id, "outcome": ["type": "string", "enum": ["achieved", "dropped"], "default": "achieved"]]),
             tool("polaris_switch_north_star", "控えの北極星を今日にする。元の今日は控えの先頭へ。予約（startsAt）は消える。", ["id": id], ["id"]),
             tool("polaris_remove_north_star", "控えから北極星を削除する。ログには残さない。", ["id": id], ["id"]),
             tool("polaris_get_north_star_log", "終わった北極星を新しい順に取得する。",

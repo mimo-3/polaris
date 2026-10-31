@@ -146,8 +146,9 @@ public struct PolarisStore: Sendable {
         }
         return (result.state, result.value)
     }
-    public func completeNorthStar(outcome: NorthStarOutcome = .achieved) throws -> (state: State, completed: NorthStar, next: NorthStar?) {
+    public func completeNorthStar(id: UUID? = nil, outcome: NorthStarOutcome = .achieved) throws -> (state: State, completed: NorthStar, next: NorthStar?) {
         let result = try transaction { state -> (NorthStar, NorthStar?) in
+            if let id, state.today.star?.id != id { throw PolarisError.northStarNotFound }
             guard var completed = state.today.star else { throw PolarisError.invalidInput("北極星がありません") }
             let now = clock()
             completed.endedAt = now

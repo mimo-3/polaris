@@ -18,6 +18,10 @@ MCPサーバーは `polaris-mcp` としてアプリに同梱しています。AI
 
 開いた付箋の北極星の真横にある✓で達成します。期限の下の「北極星の一覧」は控えが空でも表示され、メニューバーや⌃⌥Lからも開けます。右端の＋から控えへ足せます。クイック編集は北極星だけで、⌥⏎なら今日を変えず控えに入れます。
 
+## 2.0 の変更点
+
+タスク機能を廃止し、北極星だけを扱うようになりました。MCPの `polaris_add_task`、`polaris_update_task`、`polaris_complete_task`、`polaris_move_task`、`polaris_remove_task`、`polaris_rename_task`、`polaris_list_later` を削除し、`polaris_get_today` などの応答から `now`・`done`・`later` を除きました。既存のMCP連携は更新が必要です。保存済みのタスクデータは削除せず残ります。
+
 ## ビルド
 
 macOS 14以上とSwift 6対応のCommand Line ToolsかXcodeが必要です。外部パッケージやXcodeプロジェクトは使いません。
@@ -88,10 +92,10 @@ MITライセンスです。全文は [LICENSE](LICENSE) にあります。
 |---|---|
 | `SIGNING_IDENTITY` | アドホック署名 |
 | `BUNDLE_IDENTIFIER` | `dev.mimo.polaris` |
-| `VERSION` | `1.0.0` |
+| `VERSION` | `2.0.0` |
 | `BUILD_NUMBER` | `git rev-list --count HEAD` の値。取れなければ `1` |
 
-アプリに同梱したpolaris-mcpはアプリのInfo.plistにあるバージョンを名乗ります。単体でビルドしたpolaris-mcpは、ライブラリのPolarisCoreにある既定値の1.0.0を名乗ります。
+アプリに同梱したpolaris-mcpはアプリのInfo.plistにあるバージョンを名乗ります。単体でビルドしたpolaris-mcpは、ライブラリのPolarisCoreにある既定値の2.0.0を名乗ります。
 
 `make release` は `make app` のあと `build/Polaris.dmg` を作り、署名・公証・ステープルまで行います。`SIGNING_IDENTITY` にDeveloper ID Applicationの署名IDがないと失敗します。公証にはApp Store Connect APIキーで作ったキーチェーンプロファイルを使います。プロファイル名は `NOTARY_PROFILE` で変えられ、既定は `polaris-notary` です。
 

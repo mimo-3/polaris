@@ -167,6 +167,49 @@ final class MCPServerTests {
         #expect(removed["isError"] as? Bool == true)
     }
 
+    @Test(arguments: ["achieved", "dropped"])
+    func testCompleteNorthStarIDPreventsRepeatedCompletion(outcome: String) throws {
+        var subject = try initializedServer()
+        _ = try call(&subject, "polaris_set_north_star", arguments: ["text": "今日の星"])
+        let today = try #require(try payload(call(&subject, "polaris_get_today")) as? [String: Any])
+        let activeID = try #require(today["northStarID"] as? String)
+        let next = try #require(try payload(call(&subject, "polaris_add_north_star", arguments: ["text": "次の星"])) as? [String: Any])
+        let nextID = try #require(next["id"] as? String)
+        let before = try call(&subject, "polaris_get_today")
+        let mismatch = try call(&subject, "polaris_complete_north_star", arguments: ["id": nextID, "outcome": outcome])
+        #expect(mismatch["isError"] as? Bool == true)
+        #expect(NSDictionary(dictionary: try call(&subject, "polaris_get_today")).isEqual(to: before))
+
+        let completed = try #require(try payload(call(&subject, "polaris_complete_north_star", arguments: ["id": activeID, "outcome": outcome])) as? [String: Any])
+        #expect((completed["completed"] as? [String: Any])?["id"] as? String == activeID)
+        #expect((completed["completed"] as? [String: Any])?["outcome"] as? String == outcome)
+        #expect((completed["next"] as? [String: Any])?["id"] as? String == nextID)
+        let after = try call(&subject, "polaris_get_today")
+        let repeated = try call(&subject, "polaris_complete_north_star", arguments: ["id": activeID, "outcome": outcome])
+        #expect(repeated["isError"] as? Bool == true)
+        #expect(NSDictionary(dictionary: try call(&subject, "polaris_get_today")).isEqual(to: after))
+        let log = try #require(try payload(call(&subject, "polaris_get_north_star_log")) as? [[String: Any]])
+        #expect(log.count == 1)
+        #expect(log.first?["id"] as? String == activeID)
+    }
+
+    @Test func testCompleteNorthStarToolExposesOptionalID() throws {
+        var subject = try initializedServer()
+        let reply = try response(&subject, ["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let result = try #require(reply["result"] as? [String: Any])
+        let tools = try #require(result["tools"] as? [[String: Any]])
+        let tool = try #require(tools.first { $0["name"] as? String == "polaris_complete_north_star" })
+        let schema = try #require(tool["inputSchema"] as? [String: Any])
+        let properties = try #require(schema["properties"] as? [String: [String: Any]])
+        #expect(properties["id"]?["type"] as? String == "string")
+        #expect((schema["required"] as? [String] ?? []).isEmpty)
+        #expect((tool["description"] as? String ?? "").contains("id"))
+        for invalid: Any in ["invalid-uuid", NSNull(), 42] {
+            let error = try call(&subject, "polaris_complete_north_star", arguments: ["id": invalid])
+            #expect(error["isError"] as? Bool == true)
+        }
+    }
+
     @Test func testNorthStarToolsRoundTrip() throws {
         var subject = try initializedServer()
         _ = try call(&subject, "polaris_set_north_star", arguments: ["text": "今日の星"])

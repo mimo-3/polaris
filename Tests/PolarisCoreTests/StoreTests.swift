@@ -560,6 +560,58 @@ final class StoreTests {
         #expect(today["star"] is [String: Any])
     }
 
+    @Test(arguments: [NorthStarOutcome.achieved, .dropped])
+    func testCompleteNorthStarIDPreventsRepeatedCompletion(outcome: NorthStarOutcome) throws {
+        let subject = store(at: try home(), date: epoch)
+        let active = try #require(try subject.setNorthStar("今日の星").today.star)
+        let next = try subject.addNorthStar(text: "次の星")
+        let result = try subject.completeNorthStar(id: active.id, outcome: outcome)
+        #expect(result.completed.id == active.id)
+        #expect(result.completed.outcome == outcome)
+        #expect(result.next?.id == next.id)
+        let saved = try Data(contentsOf: subject.homeURL.appendingPathComponent("state.json"))
+
+        #expect {
+            try subject.completeNorthStar(id: active.id, outcome: outcome)
+        } throws: { error in
+            if case PolarisError.northStarNotFound = error { return true }
+            return false
+        }
+        #expect(try subject.read() == result.state)
+        #expect(try Data(contentsOf: subject.homeURL.appendingPathComponent("state.json")) == saved)
+        #expect(try subject.read().pastStars.count == 1)
+    }
+
+    @Test(arguments: [NorthStarOutcome.achieved, .dropped])
+    func testCompleteNorthStarMismatchedIDLeavesStateUnchanged(outcome: NorthStarOutcome) throws {
+        let subject = store(at: try home(), date: epoch)
+        _ = try subject.setNorthStar("今日の星")
+        let queued = try subject.addNorthStar(text: "控えの星")
+        let before = try subject.read()
+        let saved = try Data(contentsOf: subject.homeURL.appendingPathComponent("state.json"))
+        #expect {
+            try subject.completeNorthStar(id: queued.id, outcome: outcome)
+        } throws: { error in
+            if case PolarisError.northStarNotFound = error { return true }
+            return false
+        }
+        #expect(try subject.read() == before)
+        #expect(try Data(contentsOf: subject.homeURL.appendingPathComponent("state.json")) == saved)
+    }
+
+    @Test func testCompleteNorthStarIDWithNoActiveStarDoesNotChangeState() throws {
+        let subject = store(at: try home(), date: epoch)
+        let active = try #require(try subject.setNorthStar("最後の星").today.star)
+        let result = try subject.completeNorthStar(id: active.id)
+        #expect {
+            try subject.completeNorthStar(id: active.id)
+        } throws: { error in
+            if case PolarisError.northStarNotFound = error { return true }
+            return false
+        }
+        #expect(try subject.read() == result.state)
+    }
+
     @Test func testNorthStarQueueCompletePromotesNextAndLogs() throws {
         let subject = store(at: try home(), date: epoch)
         _ = try subject.setNorthStar("今日の星")
