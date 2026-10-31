@@ -18,7 +18,7 @@ def request(identifier, method, params=None):
     return result
 
 
-with tempfile.TemporaryDirectory(prefix="polaris-smoke-", dir=Path(__file__).resolve().parent.parent / ".build") as home:
+with tempfile.TemporaryDirectory(prefix="goalonly-smoke-", dir=Path(__file__).resolve().parent.parent / ".build") as home:
     environment = dict(os.environ, POLARIS_HOME=home)
 
     def exchange(messages):
@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix="polaris-smoke-", dir=Path(__file__).res
         request(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "smoke", "version": "1"}}),
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         request(2, "tools/list"),
-        request(3, "tools/call", {"name": "polaris_add_task", "arguments": {"title": "本命", "to": "now"}}),
+        request(3, "tools/call", {"name": "polaris_set_north_star", "arguments": {"text": "今日の目標"}}),
         request(4, "tools/call", {"name": "polaris_get_today"}),
     ])
     assert len(replies) == 4
@@ -42,14 +42,12 @@ with tempfile.TemporaryDirectory(prefix="polaris-smoke-", dir=Path(__file__).res
         "polaris_get_today", "polaris_set_north_star", "polaris_list_north_stars",
         "polaris_add_north_star", "polaris_update_north_star", "polaris_complete_north_star",
         "polaris_switch_north_star", "polaris_remove_north_star", "polaris_get_north_star_log",
-        "polaris_set_mode", "polaris_list_modes", "polaris_add_task", "polaris_update_task",
-        "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_rename_task",
-        "polaris_list_later", "polaris_nudge", "polaris_get_history",
+        "polaris_set_mode", "polaris_list_modes", "polaris_nudge", "polaris_get_history",
     }
-    assert required_tools <= {tool["name"] for tool in replies[1]["result"]["tools"]}
+    assert required_tools == {tool["name"] for tool in replies[1]["result"]["tools"]}
     today = json.loads(replies[3]["result"]["content"][0]["text"])
-    assert today["now"][0]["title"] == "本命"
-    assert today["now"][0]["source"] == "mcp:smoke"
+    assert today["northStar"] == "今日の目標"
+    assert not {"now", "done", "later", "laterCount"}.intersection(today)
     baseline = today["revision"]
 
     def writer(worker):
@@ -58,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix="polaris-smoke-", dir=Path(__file__).res
                                            "clientInfo": {"name": f"writer-{worker}", "version": "1"}}),
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
         ] + [
-            request(i, "tools/call", {"name": "polaris_add_task", "arguments": {"title": f"{worker}-{i}"}})
+            request(i, "tools/call", {"name": "polaris_nudge", "arguments": {"text": f"{worker}-{i}"}})
             for i in range(20)
         ])
         assert len(replies) == 21
@@ -68,8 +66,7 @@ with tempfile.TemporaryDirectory(prefix="polaris-smoke-", dir=Path(__file__).res
         list(executor.map(writer, range(6)))
     state = json.loads(Path(home, "state.json").read_text())
     assert state["revision"] == baseline + 120, state["revision"]
-    assert len(state["later"]) == 120
-    assert len({task["id"] for task in state["later"]}) == 120
-    assert {task["title"] for task in state["later"]} == {f"{worker}-{i}" for worker in range(6) for i in range(20)}
+    assert state["today"]["northStar"] == "今日の目標"
+    assert state["banner"]["text"] in {f"{worker}-{i}" for worker in range(6) for i in range(20)}
     assert not list(Path(home).glob("polaris-backend-*.tmp"))
-    print("PASS: initialize → tools/list → add_task → get_today; 6 processes × 20 writes, no lost revisions")
+    print("PASS: initialize → tools/list → set_north_star → get_today; 6 processes × 20 writes, no lost revisions")
