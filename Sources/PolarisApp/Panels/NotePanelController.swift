@@ -355,10 +355,6 @@ struct NotePanelRoot: View {
         .onChange(of: model.isKey) { _, key in rootFocused = key && model.editing == nil }
         .onChange(of: model.editing) { _, editing in rootFocused = model.isKey && editing == nil }
         .onKeyPress(phases: .down) { press in
-            if press.key == .escape && model.swapping != nil {
-                model.cancelSwap()
-                return .handled
-            }
             if press.key == .escape {
                 model.unpinAll()
                 model.keyboardIndex = nil

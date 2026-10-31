@@ -40,7 +40,6 @@ extension NoteModel {
         guard !text.isEmpty else { return }
         run { try $0.renameNorthStar(id: id, text: text) }
     }
-    func setTaskDue(_ id: UUID, _ due: String?) { run { try $0.setTaskDue(id: id, dueDate: due) } }
 
     /// 30秒ごとに呼ぶ。期限の「あと n日」を日付の替わり目で更新し、予約の時間が来た北極星を上げる。
     func tick() {
@@ -57,7 +56,6 @@ extension NoteModel {
         run({ try $0.surfaceScheduledStar(now: Date()).surfaced }, then: { [weak self] star in
             guard let self, let star else { return }
             self.show(.starSurfaced(title: star.text))
-            self.rippleToken += 1
             self.onSurface()
         }, always: { [weak self] in self?.surfacing = false })
     }
@@ -104,113 +102,11 @@ extension NoteModel {
         run { try $0.removeMode(id: id) }
     }
 
-    /// いま（満杯ならあとで）かあとでに足す。満杯で溢れたら声の行で知らせる。
-    func addTask(_ title: String, to destination: TaskDestination, position: Int? = nil,
-                 then done: @escaping @MainActor (Placement) -> Void = { _ in }) {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        run({ try $0.addTask(title: trimmed, to: destination, position: position) }) { [weak self] placement in
-            if placement.overflowed { self?.show(.overflow(taskID: placement.task.id, title: trimmed, client: nil)) }
-            done(placement)
-        }
-    }
-
-    /// 点→✓→取り消し線→退場→繰り上がり の順に見せてから完了にする。
-    /// 途中で対象が消えても書き込みに失敗しても、completing は必ず戻す。
-    func complete(_ id: UUID) {
-        guard completing == nil, let index = state.today.now.firstIndex(where: { $0.id == id }) else { return }
-        let task = state.today.now[index]
-        let next = index == 0 && state.today.now.count > 1 ? state.today.now[1].title : nil
-        let finish: @MainActor () -> Void = { [weak self] in
-            self?.run({ try $0.completeTask(id: id) }, then: { [weak self] _ in
-                self?.show(.undo(taskID: id, index: index, title: task.title, next: next))
-            }, always: { [weak self] in
-                self?.completing = nil
-                self?.completionPhase = 0
-            })
-        }
-        if theme.reduceMotion {
-            completing = id; completionPhase = 2
-            finish()
-            return
-        }
-        completing = id
-        withAnimation(PolarisTheme.Motion.checkFill) { completionPhase = 1 }
-        _Concurrency.Task { @MainActor [weak self] in
-            try? await _Concurrency.Task.sleep(for: .milliseconds(120))
-            guard let self else { return }
-            withAnimation(PolarisTheme.Motion.strike(false)) { self.completionPhase = 2 }
-            try? await _Concurrency.Task.sleep(for: .milliseconds(200))
-            finish()
-        }
-    }
-
-    /// 元の位置へ戻す。そのあいだにいまが埋まっていたら、あとでに入ったことを知らせる。
-    func undo() {
-        guard case .undo(let id, let index, let title, _) = transient else { return }
-        clearTransient()
-        run({ try $0.moveTask(id: id, to: .now, position: index) }) { [weak self] placement in
-            if placement.overflowed { self?.show(.overflow(taskID: id, title: title, client: nil)) }
-        }
-    }
-
-    func makeLead(_ id: UUID) {
-        run { try $0.moveTask(id: id, to: .now, position: 0) }
-    }
-
-    func sendLater(_ id: UUID) {
-        run { try $0.moveTask(id: id, to: .later, position: 0) }
-    }
-
-    func moveToNow(_ id: UUID) {
-        guard !nowFull else { return }
-        run { try $0.moveTask(id: id, to: .now) }
-    }
-
-    func reorder(_ id: UUID, to position: Int) {
-        guard let from = state.today.now.firstIndex(where: { $0.id == id }), from != position else { return }
-        run { try $0.moveTask(id: id, to: .now, position: position) }
-    }
-
-    func delete(_ id: UUID) {
-        run { try $0.removeTask(id: id) }
-    }
-
-    /// 名前だけを変える。id と位置はストア側で保たれる。
-    func rename(_ id: UUID, to title: String) {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let task = (state.today.now + state.later).first(where: { $0.id == id }), task.title != trimmed else { return }
-        run { try $0.renameTask(id: id, title: trimmed) }
-    }
-
-    /// 「入れ替える…」: 選んだいまの項目をあとでの先頭へ、溢れた項目をいまの末尾へ。
-    func beginSwap() {
-        guard case .overflow(let id, _, _) = transient else { return }
-        withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { swapping = id; pinned = true }
-        keyboardIndex = keyboardIndex.map { _ in focusOrder.firstIndex { if case .swapTarget = $0 { true } else { false } } ?? 0 }
-    }
-
-    /// 本命とは入れ替えない（主役は1つ）。本命と替えたいときは行メニューの「本命にする」を使う。
-    func swap(out outgoing: UUID) {
-        guard let incoming = swapping, state.today.now.first?.id != outgoing else { return }
-        swapping = nil
-        clearTransient()
-        run { try $0.swapTasks(out: outgoing, in: incoming) }
-    }
-
-    func cancelSwap() {
-        guard swapping != nil else { return }
-        withAnimation(PolarisTheme.Motion.voiceSwap(theme.reduceMotion)) { swapping = nil }
-        clearTransient()
-    }
-
     // MARK: その場の編集
     func beginEditing(_ target: Editing) {
         switch target {
         case .northStar: draft = state.today.northStar
-        case .rename(let id): draft = (state.today.now + state.later).first { $0.id == id }?.title ?? ""
-        case .add, .queueStar: draft = ""
+        case .queueStar: draft = ""
         }
         withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { editing = target }
         requestKey()
@@ -221,13 +117,11 @@ extension NoteModel {
         let text = draft
         switch editing {
         case .northStar: setNorthStar(text)
-        case .rename(let id): rename(id, to: text)
-        case .add: addTask(text, to: .now)
         case .queueStar: queueNorthStar(text)
         }
         // 続けて足すものは入力欄を残す。控えはいま足した分で満杯になるなら閉じる。
         let queueFull = editing == .queueStar && state.queuedStars.count + 1 >= TextRules.starQueueMax
-        if editing == .add || editing == .queueStar, !queueFull, !text.trimmingCharacters(in: .whitespaces).isEmpty {
+        if editing == .queueStar, !queueFull, !text.trimmingCharacters(in: .whitespaces).isEmpty {
             draft = "" // 続けて足せるように入力欄は残す
             return
         }
@@ -241,38 +135,19 @@ extension NoteModel {
     }
 
     // MARK: キーボード（付箋が key のとき）
-    /// 操作できる要素の並び: 北極星 → いまの各行 →（入れ替え中なら各行の入れ替え）→ 追加（全部完了ならその操作）
-    /// → あとで →（開いていれば）あとでの各行 → 声の行のボタン。
     var focusOrder: [FocusTarget] {
         var order: [FocusTarget] = [.northStar]
-        if showsStarQueue { order.append(.starQueue) }
-        order += state.today.now.map { .row($0.id) }
-        if swapping != nil { order += state.today.now.dropFirst().map { .swapTarget($0.id) } }
-        if isAllDone && editing != .add {
-            order += (0..<allDoneActionCount).map { .allDoneAction($0) }
-        } else {
-            order.append(.add)
-        }
-        order.append(.later)
-        if laterOpen { order += state.later.map { .laterRow($0.id) } }
+        if state.today.star != nil || !state.queuedStars.isEmpty { order.append(.starQueue) }
+        order.append(.starsList)
+        if state.queuedStars.count < TextRules.starQueueMax { order.append(.queueStar) }
         order += (0..<voiceActionCount).map { .voiceAction($0) }
         return order
     }
-
-    /// 展開中に北極星のすぐ下へ出す控えの行。今日の北極星か控えがあるときだけ。
-    var showsStarQueue: Bool { expanded && (state.today.star != nil || !state.queuedStars.isEmpty) }
 
     /// 控えの行のボタン: 今日の北極星があれば［達成した］、なければ控えの先頭を［これにする］。
     func performStarQueueAction() {
         if state.today.star != nil { endNorthStar() }
         else if let next = state.queuedStars.first { activateNorthStar(next.id) }
-    }
-
-    /// 全部完了のときの操作: あとでが空なら［＋ 追加］［今日はここまで］、あれば［今日はここまで］だけ。
-    var allDoneActionCount: Int { state.later.isEmpty ? 2 : 1 }
-
-    func performAllDoneAction(_ index: Int) {
-        if state.later.isEmpty && index == 0 { beginEditing(.add) } else { closeDay() }
     }
 
     /// 声の行に出ているボタンの数（左から順）。透過中は出さない。
@@ -281,7 +156,7 @@ extension NoteModel {
         switch voice {
         case .mode, .transient(.error), .transient(.modeChanged), .transient(.starSurfaced): return 0
         case .detour: return 2
-        case .transient(.undo), .transient(.overflow), .transient(.starEnded), .banner: return 1
+        case .transient(.starEnded), .banner: return 1
         }
     }
 
@@ -289,9 +164,7 @@ extension NoteModel {
         switch voice {
         case .detour(let detour):
             if index == 0 { DetourActions.hide(detour, model: self) } else { DetourActions.snooze(detour, model: self) }
-        case .transient(.undo): undo()
         case .transient(.starEnded): undoStarEnded()
-        case .transient(.overflow): swapping == nil ? beginSwap() : cancelSwap()
         case .banner: dismissBanner()
         case .mode, .transient(.error), .transient(.modeChanged), .transient(.starSurfaced): break
         }
@@ -308,27 +181,20 @@ extension NoteModel {
         return focusOrder[keyboardIndex]
     }
 
-    /// ⌃⌥O で最初に置く場所。寄り道が出ていれば［{App}を隠す］、なければ本命の行。
+    /// ⌃⌥O で最初に置く場所。寄り道が出ていれば［{App}を隠す］、なければ北極星。
     var initialKeyboardIndex: Int {
         if case .detour = voice, let i = focusOrder.firstIndex(of: .voiceAction(0)) { return i }
-        if let lead = state.today.now.first, let i = focusOrder.firstIndex(of: .row(lead.id)) { return i }
         return 0
     }
 }
 
 enum FocusTarget: Equatable {
-    case northStar, starQueue, row(UUID), add, later
-    case voiceAction(Int), laterRow(UUID), swapTarget(UUID), allDoneAction(Int)
+    case northStar, starQueue, starsList, queueStar
+    case voiceAction(Int)
 }
 
 // MARK: - 朝の支度・key を外すとき
 extension NoteModel {
-    /// 支度の Step 3。選ばなかったいまの項目はあとでの先頭へ戻し、選んだ順にいまへ入れる。
-    func applyMorning(selected: [UUID]) {
-        let chosen = Array(selected.prefix(3))
-        run { try $0.arrangeMorning(selected: chosen) }
-    }
-
     /// 読めない state.json を退避して作り直す（メニューから）。
     func resetCorruptState() {
         run { _ = try $0.resetCorruptState() }
@@ -340,61 +206,29 @@ extension NoteModel {
         let text = draft
         switch editing {
         case .northStar: setNorthStar(text)
-        case .rename(let id): rename(id, to: text)
-        case .add: addTask(text, to: .now)
         case .queueStar: queueNorthStar(text)
         }
         withAnimation(PolarisTheme.Motion.collapse(theme.reduceMotion)) { self.editing = nil }
         draft = ""
     }
 
-    /// 付箋が key のときのキー操作（design.md 6章）。処理したら true。
     func handleKey(_ key: KeyEquivalent, modifiers: EventModifiers, characters: String) -> Bool {
-        let command = modifiers.contains(.command)
-        let target = focusedTarget
-        let rowID: UUID? = { if case .row(let id) = target { return id }; return nil }()
         switch key {
-        case .upArrow:
-            if command, let rowID { makeLead(rowID) } else { moveFocus(-1) }
+        case .upArrow: moveFocus(-1)
         case .downArrow: moveFocus(1)
         case .tab: moveFocus(modifiers.contains(.shift) ? -1 : 1)
-        case .space:
-            if let rowID { complete(rowID) } else { return activate(target) }
-        case .return:
-            switch target {
+        case .space, .return:
+            switch focusedTarget {
             case .northStar: beginEditing(.northStar)
-            case .row(let id): beginEditing(.rename(id))
-            case .add: beginEditing(.add)
-            case .later: toggleLater()
-            default: return activate(target)
+            case .starQueue: performStarQueueAction()
+            case .starsList: (NSApp.delegate as? AppCoordinator)?.showStars()
+            case .queueStar: beginEditing(.queueStar)
+            case .voiceAction(let i): performVoiceAction(i)
+            case nil: return false
             }
-        case .delete:
-            if let rowID {
-                if command { delete(rowID) } else { sendLater(rowID) }
-            } else if case .laterRow(let id) = target, command {
-                delete(id)
-            } else { return false }
-        case .escape where swapping != nil:
-            cancelSwap()
         default:
-            if characters == "l" && !command { toggleLater() }
-            else if characters == "z" && command {
-                if case .transient(.starEnded) = voice { undoStarEnded() } else { undo() }
-            }
+            if characters == "z", modifiers.contains(.command), case .transient(.starEnded) = voice { undoStarEnded() }
             else { return false }
-        }
-        return true
-    }
-
-    /// 行以外のボタン（声の行・入れ替え・あとでの行・全部完了）を ⏎ / Space で押す。
-    private func activate(_ target: FocusTarget?) -> Bool {
-        switch target {
-        case .voiceAction(let i): performVoiceAction(i)
-        case .starQueue: performStarQueueAction()
-        case .swapTarget(let id): swap(out: id)
-        case .laterRow(let id): moveToNow(id)
-        case .allDoneAction(let i): performAllDoneAction(i)
-        default: return false
         }
         return true
     }

@@ -7,7 +7,7 @@ final class MCPServerTests {
     private var homes: [URL] = []
     deinit { for url in homes { try? FileManager.default.removeItem(at: url) } }
     private func server() throws -> MCPServer {
-        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/polaris-test-tests-\(UUID().uuidString)")
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/goalonly-mcp-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         homes.append(directory)
         let date = Date(timeIntervalSince1970: 1_780_272_000)
@@ -38,7 +38,7 @@ final class MCPServerTests {
         return try JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
     }
 
-    @Test func testInitializeListAndCallRoundTripPreservesIDAndDefaultsTaskToLater() throws {
+    @Test func testInitializeListAndNorthStarRoundTripPreservesID() throws {
         var subject = try server()
         let initialized = try response(&subject, ["jsonrpc": "2.0", "id": "client-1", "method": "initialize", "params": ["protocolVersion": "2024-11-05", "capabilities": [:], "clientInfo": ["name": "test", "version": "1"]]])
         #expect(initialized["id"] as? String == "client-1")
@@ -51,24 +51,34 @@ final class MCPServerTests {
         let list = try #require(listed["result"] as? [String: Any])
         let tools = try #require(list["tools"] as? [[String: Any]])
         let names = Set(tools.compactMap { $0["name"] as? String })
-        #expect(names == Set(["polaris_get_today", "polaris_set_north_star", "polaris_list_north_stars", "polaris_add_north_star", "polaris_update_north_star", "polaris_complete_north_star", "polaris_switch_north_star", "polaris_remove_north_star", "polaris_get_north_star_log", "polaris_set_mode", "polaris_list_modes", "polaris_add_task", "polaris_update_task", "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_rename_task", "polaris_list_later", "polaris_nudge", "polaris_get_history"]))
-        #expect(tools.count == 20)
+        #expect(names == Set(["polaris_get_today", "polaris_set_north_star", "polaris_list_north_stars", "polaris_add_north_star", "polaris_update_north_star", "polaris_complete_north_star", "polaris_switch_north_star", "polaris_remove_north_star", "polaris_get_north_star_log", "polaris_set_mode", "polaris_list_modes", "polaris_nudge", "polaris_get_history"]))
+        #expect(tools.count == 13)
         for tool in tools {
             let schema = try #require(tool["inputSchema"] as? [String: Any])
             #expect(schema["type"] as? String == "object")
             #expect(!((tool["description"] as? String ?? "").isEmpty))
         }
-        let added = try call(&subject, "polaris_add_task", arguments: ["title": "読書 📚"])
-        #expect(added["isError"] as? Bool != true)
-        let later = try call(&subject, "polaris_list_later")
-        let tasks = try #require(payload(later) as? [[String: Any]])
-        #expect(tasks.first?["title"] as? String == "読書 📚")
-        #expect(tasks.first?["source"] as? String == "mcp:test")
+        _ = try call(&subject, "polaris_set_north_star", arguments: ["text": "読書 📚"])
         let today = try call(&subject, "polaris_get_today")
         #expect(today["isError"] as? Bool != true)
         let day = try #require(payload(today) as? [String: Any])
-        #expect(day["laterCount"] as? Int == 1)
-        #expect((day["now"] as? [Any])?.isEmpty == true)
+        #expect(day["northStar"] as? String == "読書 📚")
+        for key in ["now", "done", "later", "laterCount"] { #expect(day[key] == nil) }
+    }
+
+    @Test func testTaskToolsAreAbsentAndUnknown() throws {
+        var subject = try initializedServer()
+        let listed = try response(&subject, ["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let result = try #require(listed["result"] as? [String: Any])
+        let tools = try #require(result["tools"] as? [[String: Any]])
+        let names = Set(tools.compactMap { $0["name"] as? String })
+        for name in ["polaris_add_task", "polaris_update_task", "polaris_complete_task", "polaris_move_task", "polaris_remove_task", "polaris_rename_task", "polaris_list_later"] {
+            #expect(!names.contains(name))
+            let reply = try response(&subject, ["jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": ["name": name]])
+            let error = try #require(reply["error"] as? [String: Any])
+            #expect(error["code"] as? Int == -32602)
+            #expect(error["message"] as? String == "Unknown tool: \(name)")
+        }
     }
 
     @Test func testInvalidJSONAndUnknownMethodReturnProtocolErrors() throws {
@@ -86,17 +96,15 @@ final class MCPServerTests {
     @Test func testInvalidToolInputsReturnIsErrorInsteadOfProtocolError() throws {
         var subject = try initializedServer()
         let invalidCalls: [(String, [String: Any])] = [
-            ("polaris_add_task", [:]),
-            ("polaris_add_task", ["title": 12]),
-            ("polaris_add_task", ["title": "task", "to": "done"]),
-            ("polaris_add_task", ["title": "task", "position": -1]),
-            ("polaris_add_task", ["title": "task", "position": 1.5]),
-            ("polaris_complete_task", ["id": "not-a-uuid"]),
             ("polaris_set_mode", ["mode_id": "missing"]),
             ("polaris_nudge", ["text": "hello", "ttl_minutes": 0]),
             ("polaris_get_history", ["days": false]),
-            ("polaris_add_task", ["title": String(repeating: "x", count: 201)]),
-            ("polaris_rename_task", ["id": UUID().uuidString, "title": "x"])
+            ("polaris_add_north_star", [:]),
+            ("polaris_add_north_star", ["text": 12]),
+            ("polaris_add_north_star", ["text": "星", "position": -1]),
+            ("polaris_add_north_star", ["text": "星", "position": 1.5]),
+            ("polaris_add_north_star", ["text": String(repeating: "x", count: 201)]),
+            ("polaris_switch_north_star", ["id": "not-a-uuid"])
         ]
         for (name, arguments) in invalidCalls {
             let result = try call(&subject, name, arguments: arguments)
@@ -126,20 +134,6 @@ final class MCPServerTests {
         #expect((again["error"] as? [String: Any])?["code"] as? Int == -32600)
     }
 
-    @Test func testRenameToolKeepsIDAndClientNameIsSanitized() throws {
-        var subject = try initializedServer(name: "bad\u{202E}\nname")
-        let added = try payload(call(&subject, "polaris_add_task", arguments: ["title": "元", "to": "now"])) as? [String: Any]
-        let task = try #require(added?["task"] as? [String: Any])
-        #expect(task["source"] as? String == "mcp:bad name")
-        let id = try #require(task["id"] as? String)
-        let renamed = try call(&subject, "polaris_rename_task", arguments: ["id": id, "title": "新"])
-        #expect(renamed["isError"] as? Bool == false)
-        let day = try #require(payload(renamed) as? [String: Any])
-        let now = try #require(day["now"] as? [[String: Any]])
-        #expect(now.first?["id"] as? String == id)
-        #expect(now.first?["title"] as? String == "新")
-    }
-
     @Test func testLineReaderDropsOversizedLines() throws {
         var chunks: [[UInt8]] = [Array("ab\n".utf8), Array(repeating: 0x78, count: 40), Array("\ncd\r\nef".utf8)]
         var reader = LineReader(maxBytes: 16) { buffer in
@@ -154,7 +148,7 @@ final class MCPServerTests {
     }
 
     @Test func testListAndSetModeUseEditedModes() throws {
-        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/polaris-test-tests-\(UUID().uuidString)")
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/goalonly-mcp-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         homes.append(directory)
         let date = Date(timeIntervalSince1970: 1_780_272_000)
@@ -207,7 +201,7 @@ final class MCPServerTests {
         #expect(removed["isError"] as? Bool == false)
     }
 
-    @Test func testUpdateNorthStarAndTaskClearFieldsWithNull() throws {
+    @Test func testUpdateNorthStarClearsFieldsWithNull() throws {
         var subject = try initializedServer()
         let added = try #require(try payload(call(&subject, "polaris_add_north_star", arguments: [
             "text": "予約の星",
@@ -228,22 +222,5 @@ final class MCPServerTests {
         #expect(updated["dueDate"] == nil)
         #expect(updated["startsAt"] == nil)
 
-        let task = try #require(try payload(call(&subject, "polaris_add_task", arguments: [
-            "title": "期限つき", "dueDate": "2026-06-20"
-        ])) as? [String: Any])
-        let taskObj = try #require(task["task"] as? [String: Any])
-        let taskID = try #require(taskObj["id"] as? String)
-        #expect(taskObj["dueDate"] as? String == "2026-06-20")
-
-        let cleared = try #require(try payload(call(&subject, "polaris_update_task", arguments: [
-            "id": taskID, "dueDate": NSNull()
-        ])) as? [String: Any])
-        #expect(cleared["dueDate"] == nil)
-        #expect(cleared["title"] as? String == "期限つき")
-
-        let renamed = try #require(try payload(call(&subject, "polaris_update_task", arguments: [
-            "id": taskID, "title": "名前だけ"
-        ])) as? [String: Any])
-        #expect(renamed["title"] as? String == "名前だけ")
     }
 }

@@ -6,7 +6,6 @@ struct ThemeContext: Equatable, Sendable {
     var increaseContrast = false
     var reduceMotion = false
     var reduceTransparency = false
-    var differentiateWithoutColor = false
     /// ImageRenderer で描くとき。素材は描けないので surface を不透明にする。
     var snapshot = false
 
@@ -20,8 +19,7 @@ struct ThemeContext: Equatable, Sendable {
         let ws = NSWorkspace.shared
         return ThemeContext(increaseContrast: ws.accessibilityDisplayShouldIncreaseContrast,
                             reduceMotion: ws.accessibilityDisplayShouldReduceMotion,
-                            reduceTransparency: ws.accessibilityDisplayShouldReduceTransparency,
-                            differentiateWithoutColor: ws.accessibilityDisplayShouldDifferentiateWithoutColor)
+                            reduceTransparency: ws.accessibilityDisplayShouldReduceTransparency)
     }
 }
 

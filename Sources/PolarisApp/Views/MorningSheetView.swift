@@ -10,25 +10,20 @@ struct MorningSheetView: View {
     @State var step: Int
     @State private var modeID: String
     @State private var northStar: String
-    @State private var selected: [UUID]
-    @State private var newDraft = ""
-    @State private var writingNew = false
     @State private var forward = true
-    @State private var cursor = 0
     /// Tab で主ボタンへ移ったとき。
     @State private var onPrimary = false
     @FocusState private var focus: Field?
     @FocusState private var rootFocused: Bool
 
-    private enum Field { case northStar, newTask }
+    private enum Field { case northStar }
     private typealias S = PolarisTheme.Space
 
-    init(state: AppState, step: Int = 1, selected: [UUID]? = nil, close: @escaping () -> Void) {
+    init(state: AppState, step: Int = 1, close: @escaping () -> Void) {
         self.close = close
         _step = .init(initialValue: step)
         _modeID = .init(initialValue: state.today.mode.id)
         _northStar = .init(initialValue: state.today.northStar)
-        _selected = .init(initialValue: selected ?? state.today.now.map(\.id))
     }
 
     var body: some View {
@@ -38,8 +33,7 @@ struct MorningSheetView: View {
             Group {
                 switch step {
                 case 1: modeStep
-                case 2: northStarStep
-                default: tasksStep
+                default: northStarStep
                 }
             }
             .id(step)
@@ -118,7 +112,7 @@ struct MorningSheetView: View {
     private var canCarryOver: Bool {
         guard let y = yesterday, !y.northStar.isEmpty, y.northStar != northStar else { return false }
         // 未達のときだけ。終えていない北極星は日付が替わると控えへ戻るので、控えに残っているかで見る。
-        guard let star = y.star else { return !y.now.isEmpty }
+        guard let star = y.star else { return false }
         return model.state.queuedStars.contains { $0.id == star.id }
     }
 
@@ -128,7 +122,7 @@ struct MorningSheetView: View {
             Spacer().frame(height: S.m)
             PolarisTextField(text: $northStar, prompt: Copy.step2Placeholder, font: PolarisTheme.Typography.northStar,
                              lineSpacing: PolarisTheme.Typography.northStarLineSpacing, axis: .vertical, lines: 1...3,
-                             onSubmit: { go(to: 3) })
+                             onSubmit: { finish() })
                 .focused($focus, equals: .northStar)
                 .fieldBox(focused: focus == .northStar || (theme.snapshot && northStar.isEmpty))
                 .onAppear { if !theme.snapshot { focus = .northStar } }
@@ -157,11 +151,11 @@ struct MorningSheetView: View {
                 Spacer()
                 // 空のとき、いちばん押しやすい見た目を「決めずに進む」に渡さない。⏎ は Quiet 側を押す。
                 if northStarEmpty {
-                    Button { go(to: 3) } label: { Text("\(Copy.skipNorthStar) ⏎") }
+                    Button { finish() } label: { Text("\(Copy.skipNorthStar) ⏎") }
                         .buttonStyle(QuietButtonStyle())
                 }
-                Button { go(to: 3) } label: {
-                    Text(northStarEmpty ? Copy.pickThree : "\(Copy.pickThree) ⏎")
+                Button { finish() } label: {
+                    Text(northStarEmpty ? Copy.startWithStar : "\(Copy.startWithStar) ⏎")
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(northStarEmpty)
@@ -171,91 +165,12 @@ struct MorningSheetView: View {
 
     private var northStarEmpty: Bool { northStar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    // MARK: Step 3
-
-    private var candidates: [Item] { model.state.today.now + model.state.later }
-
-    private var tasksStep: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            title(Copy.step3Title)
-            Spacer().frame(height: S.xs)
-            MetaText(text: Copy.step3Hint)
-            Spacer().frame(height: S.m)
-            if candidates.isEmpty {
-                Text(Copy.laterEmptyMorning)
-                    .font(PolarisTheme.Typography.task)
-                    .foregroundStyle(theme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer().frame(height: S.s)
-            } else {
-                PolarisScroll(height: CGFloat(min(candidates.count, 6)) * 36, showsIndicators: candidates.count > 6) {
-                    VStack(spacing: 0) {
-                        ForEach(Array(candidates.enumerated()), id: \.element.id) { index, task in
-                            PickRow(task: task, order: selected.firstIndex(of: task.id),
-                                    disabled: selected.count >= 3 && !selected.contains(task.id),
-                                    origin: origin(of: task),
-                                    focused: cursor == index && rootFocused && !onPrimary) { toggle(task.id) }
-                        }
-                    }
-                }
-            }
-            newTaskRow
-            Spacer().frame(height: S.xxl)
-            HStack {
-                Button(Copy.back) { go(to: 2) }
-                    .buttonStyle(QuietButtonStyle())
-                    .padding(.leading, -8)
-                Spacer()
-                Button { finish() } label: { Text("\(Copy.startWith(selected.count)) ⏎") }
-                    .buttonStyle(PrimaryButtonStyle(focused: onPrimary && rootFocused))
-            }
-        }
-        .onAppear { if candidates.isEmpty && !theme.snapshot { writingNew = true; focus = .newTask } }
-    }
-
-    @ViewBuilder private var newTaskRow: some View {
-        if writingNew {
-            HStack(spacing: 12) {
-                Circle().stroke(theme.ink2, lineWidth: 1).frame(width: 20, height: 20)
-                PolarisTextField(text: $newDraft, prompt: Copy.addPlaceholder, font: PolarisTheme.Typography.task,
-                                 onSubmit: addNew)
-                    .focused($focus, equals: .newTask)
-            }
-            .frame(height: 36)
-        } else {
-            Button(Copy.writeNew) { writingNew = true; focus = .newTask }
-                .buttonStyle(QuietButtonStyle(height: 36))
-                .padding(.leading, -8)
-        }
-    }
-
-    private func origin(of task: Item) -> String? {
-        if task.source.hasPrefix("mcp:") { return Copy.from(Copy.clientName(task.source)) }
-        if let y = yesterday, y.now.contains(where: { $0.id == task.id }) { return Copy.fromYesterday }
-        return nil
-    }
-
-    private func toggle(_ id: UUID) {
-        if let i = selected.firstIndex(of: id) { selected.remove(at: i) }
-        else if selected.count < 3 { selected.append(id) }
-    }
-
-    private func addNew() {
-        let title = newDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return }
-        newDraft = ""
-        model.addTask(title, to: .later, position: 0) { placement in
-            if selected.count < 3 { selected.append(placement.task.id) }
-        }
-    }
-
     // MARK: 進む・戻る・閉じる
 
     private func go(to next: Int) {
         if step == 2 { saveNorthStar() }
         forward = next > step
         withAnimation(PolarisTheme.Motion.sheetStep(theme.reduceMotion)) { step = next }
-        cursor = 0
         onPrimary = false
         if next != 2 { rootFocused = true }
     }
@@ -264,7 +179,6 @@ struct MorningSheetView: View {
 
     private func finish() {
         saveNorthStar()
-        model.applyMorning(selected: selected)
         close()
     }
 
@@ -295,17 +209,6 @@ struct MorningSheetView: View {
                 choose(modes[next]); return .handled
             }
             if press.key == .return || (press.key == .space && onPrimary) { go(to: 2); return .handled }
-        case 3:
-            if focus == .newTask { return .ignored }
-            switch press.key {
-            case .downArrow: onPrimary = false; cursor = min(cursor + 1, max(candidates.count - 1, 0)); return .handled
-            case .upArrow: onPrimary = false; cursor = max(cursor - 1, 0); return .handled
-            case .space:
-                if onPrimary { finish() } else if candidates.indices.contains(cursor) { toggle(candidates[cursor].id) }
-                return .handled
-            case .return: finish(); return .handled
-            default: break
-            }
         default: break
         }
         return .ignored
@@ -359,55 +262,5 @@ private struct ModeChoice: View {
     private var borderWidth: CGFloat {
         if selected { return theme.increaseContrast ? 2 : 1.5 }
         return 1
-    }
-}
-
-/// Step 3 の行。h36。選んだ順の番号をリング ⌀20 に入れ、①だけ star で塗る。
-private struct PickRow: View {
-    var task: Item
-    var order: Int?
-    var disabled: Bool
-    var origin: String?
-    var focused: Bool
-    var action: () -> Void
-    @Environment(\.polaris) private var theme
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                badge
-                Text(task.title)
-                    .font(PolarisTheme.Typography.task)
-                    .foregroundStyle(order == nil ? theme.ink2 : theme.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 8)
-                if let origin { MetaText(text: origin) }
-            }
-            .frame(height: 36)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .focusRing(focused, radius: PolarisTheme.Radius.small)
-        .accessibilityLabel(task.title)
-        .accessibilityValue(order.map { "\($0 + 1)番目に選択" } ?? "未選択")
-    }
-
-    @ViewBuilder private var badge: some View {
-        let size: CGFloat = 20
-        ZStack {
-            if order == 0 {
-                Circle().fill(theme.star)
-                Text("1").font(PolarisTheme.Typography.meta).monospacedDigit()
-                    .foregroundStyle(PolarisTheme.Palette.surface)
-            } else if let order {
-                Circle().stroke(theme.ink, lineWidth: 1)
-                Text("\(order + 1)").font(PolarisTheme.Typography.meta).monospacedDigit().foregroundStyle(theme.ink)
-            } else {
-                Circle().stroke(theme.ink2, lineWidth: 1)
-            }
-        }
-        .frame(width: size, height: size)
     }
 }

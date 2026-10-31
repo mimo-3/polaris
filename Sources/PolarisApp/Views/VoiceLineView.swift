@@ -31,7 +31,7 @@ struct VoiceLineView: View {
 
     @ViewBuilder private var content: some View {
         switch model.voice {
-        case .mode: ModeLine(showCounts: model.expanded || model.isAllDone, switchable: !compact)
+        case .mode: ModeLine(switchable: !compact)
         case .detour(let detour): detourLine(detour)
         case .transient(let t): transientLine(t)
         case .banner(let banner):
@@ -71,47 +71,10 @@ struct VoiceLineView: View {
         }
     }
 
-    // MARK: 取り消し・4件目・エラー
+    // MARK: 北極星の知らせ・エラー
 
     @ViewBuilder private func transientLine(_ t: Transient) -> some View {
         switch t {
-        case .undo(_, _, let title, _):
-            oneLine {
-                HStack(spacing: PolarisTheme.Space.s) {
-                    quoted(title, tail: Copy.completedTail, font: PolarisTheme.Typography.voiceEmphasis)
-                        .layoutPriority(1)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel(Copy.completed(title))
-                    Spacer(minLength: 0)
-                    if showsButtons {
-                        Button(Copy.undo) { model.undo() }
-                            .buttonStyle(SmallButtonStyle(outlined: true, focused: focused(0)))
-                            .keyboardShortcut("z", modifiers: .command)
-                    }
-                }
-            }
-        case .overflow(_, let title, let client):
-            oneLine {
-                if model.swapping != nil {
-                    HStack(spacing: PolarisTheme.Space.s) {
-                        Text(Copy.swapPick)
-                            .font(PolarisTheme.Typography.voiceEmphasis)
-                            .foregroundStyle(theme.ink)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        if showsButtons {
-                            Button(Copy.swapCancel) { model.cancelSwap() }
-                                .buttonStyle(SmallButtonStyle(outlined: true, focused: focused(0)))
-                        }
-                    }
-                } else {
-                    ViewThatFits(in: .horizontal) {
-                        if let client { overflowRow(title, client: client, truncates: false) }
-                        overflowRow(title, client: nil, truncates: false)
-                        overflowRow(title, client: nil, truncates: true)
-                    }
-                }
-            }
         case .modeChanged(let mode):
             // モード表示と同じ glyph と位置にして、「この行はモード」という読み方を崩さない。
             HStack(spacing: 6) {
@@ -173,29 +136,6 @@ struct VoiceLineView: View {
         }
     }
 
-    /// 「「議事録を整える」はあとでへ（Codex から） ［入れ替える…］」
-    private func overflowRow(_ title: String, client: String?, truncates: Bool) -> some View {
-        HStack(spacing: PolarisTheme.Space.s) {
-            HStack(spacing: 0) {
-                quoted(title, tail: Copy.overflowTail, font: PolarisTheme.Typography.voice, truncates: truncates)
-                if let client {
-                    Text(Copy.fromClient(client))
-                        .font(PolarisTheme.Typography.meta)
-                        .foregroundStyle(theme.ink2)
-                        .fixedSize()
-                }
-            }
-            .layoutPriority(1)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Copy.overflow(title) + (client.map(Copy.fromClient) ?? ""))
-            Spacer(minLength: 0)
-            if showsButtons {
-                Button(Copy.swap) { model.beginSwap() }
-                    .buttonStyle(SmallButtonStyle(outlined: true, focused: focused(0)))
-            }
-        }
-    }
-
     /// 「{title}{tail}。title だけを末尾で省略し、」以降は必ず見せる。
     private func quoted(_ title: String, tail: String, font: Font, truncates: Bool = true) -> some View {
         HStack(spacing: 0) {
@@ -213,7 +153,7 @@ struct VoiceLineView: View {
 
     // MARK: banner
 
-    /// 常駐中: 「PR終わったよ、本命に戻ろう · Claude Code」を1行で、末尾を省略する。
+    /// 常駐中: 「PR終わったよ、北極星に戻ろう · Claude Code」を1行で、末尾を省略する。
     private func bannerLine(_ banner: Banner) -> some View {
         let client = Copy.clientName(banner.from)
         return oneLine {
@@ -300,8 +240,6 @@ private struct ExpandAccessibility: ViewModifier {
 /// 通常の声の行: モードの glyph ＋ 名前。展開中と全部完了の日は右に「済 n」。
 /// モードの名前を押すと、その場でモードを切り替えられる。
 struct ModeLine: View {
-    var showCounts: Bool
-    var closed = false
     var switchable = true
     @Environment(NoteModel.self) private var model
     @Environment(\.polaris) private var theme
@@ -309,20 +247,16 @@ struct ModeLine: View {
     var body: some View {
         HStack(spacing: 6) {
             // ImageRenderer は Menu を描かないので、スナップショットでは見た目だけ出す。
-            if switchable && !closed && !theme.snapshot {
+            if switchable && !theme.snapshot {
                 modeMenu
             } else {
-                modeLabel(chevron: switchable && !closed)
+                modeLabel(chevron: switchable)
             }
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
-                if showCounts && !model.today.done.isEmpty && !closed {
-                    MetaText(text: Copy.done(model.today.done.count))
-                        .contentTransition(.numericText())
-                }
             }
-            .modifier(ExpandAccessibility(enabled: !closed && model.interactive))
-            if switchable && !closed && model.expanded { settingsButton }
+            .modifier(ExpandAccessibility(enabled: model.interactive))
+            if switchable && model.expanded { settingsButton }
         }
         .frame(height: 16)
     }
@@ -350,7 +284,7 @@ struct ModeLine: View {
                 .foregroundStyle(PolarisTheme.Palette.Mode.tint(model.mode.tint))
                 .frame(width: 16)
                 .accessibilityHidden(true)
-            MetaText(text: closed ? Copy.dayClosed(model.mode.label) : model.mode.label)
+            MetaText(text: model.mode.label)
             if chevron {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .semibold))

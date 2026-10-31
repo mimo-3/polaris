@@ -178,17 +178,6 @@ struct QuietButtonStyle: ButtonStyle {
     }
 }
 
-/// 付箋内のテキストだけのボタン（＋ 追加、本命を追加する など）。押したときだけ塗る。
-struct InlineButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .contentShape(Rectangle())
-            .background(RoundedRectangle(cornerRadius: PolarisTheme.Radius.button, style: .continuous)
-                .fill(configuration.isPressed ? PolarisTheme.Palette.pressFill : .clear)
-                .padding(.horizontal, -8).padding(.vertical, -4))
-    }
-}
-
 /// キー表記など、等幅数字の meta。
 struct MetaText: View {
     var text: String
@@ -289,7 +278,7 @@ struct CardRow<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: PolarisTheme.Space.m) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(PolarisTheme.Typography.task).foregroundStyle(theme.ink)
+                Text(title).font(PolarisTheme.Typography.body).foregroundStyle(theme.ink)
                 if let detail { MetaText(text: detail) }
             }
             .accessibilityElement(children: .combine)

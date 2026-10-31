@@ -1,8 +1,6 @@
 import Foundation
 import PolarisCore
 
-typealias Item = PolarisCore.Task
-
 /// 寄り道先のアプリ。
 struct Detour: Equatable {
     var bundleID: String
@@ -11,11 +9,9 @@ struct Detour: Equatable {
     var mode: Mode
 }
 
-/// 取り消し・4件目・保存失敗など、数秒だけ声の行に出るもの。
+/// 北極星の知らせ・保存失敗など、数秒だけ声の行に出るもの。
 /// `modeChanged` は banner がモード表示を塞いでいるあいだにモードが替わったときだけ出す。
 enum Transient: Equatable {
-    case undo(taskID: UUID, index: Int, title: String, next: String?)
-    case overflow(taskID: UUID, title: String, client: String?)
     case modeChanged(Mode)
     /// 北極星を終えた。付箋の1段目はもう次の北極星に替わっている。
     case starEnded(starID: UUID, title: String, next: String?, achieved: Bool)
@@ -26,14 +22,13 @@ enum Transient: Equatable {
     var duration: TimeInterval {
         switch self {
         case .modeChanged: 4
-        case .undo: 5
-        case .overflow, .starEnded, .error: 6
+        case .starEnded, .error: 6
         case .starSurfaced: 10
         }
     }
 }
 
-/// 声の行に出すもの。優先順位は 寄り道 > 取り消し・4件目 > banner > モード表示。
+/// 声の行に出すもの。優先順位は 寄り道 > 北極星の知らせ > banner > モード表示。
 enum Voice: Equatable {
     case mode
     case detour(Detour)
@@ -46,8 +41,6 @@ enum Voice: Equatable {
         case .detour(let d): "detour-\(d.bundleID)"
         case .transient(let t):
             switch t {
-            case .undo(let id, _, _, _): "undo-\(id)"
-            case .overflow(let id, _, _): "overflow-\(id)"
             case .modeChanged(let mode): "mode-changed-\(mode.id)"
             case .starEnded(let id, _, _, _): "star-ended-\(id)"
             case .starSurfaced(let title): "star-surfaced-\(title)"
@@ -57,10 +50,10 @@ enum Voice: Equatable {
         }
     }
 
-    static func resolve(detour: Detour?, transient: Transient?, banner: Banner?, holdBanner: Bool) -> Voice {
+    static func resolve(detour: Detour?, transient: Transient?, banner: Banner?) -> Voice {
         if let detour { return .detour(detour) }
         if let transient { return .transient(transient) }
-        if let banner, !holdBanner { return .banner(banner) }
+        if let banner { return .banner(banner) }
         return .mode
     }
 }
@@ -86,8 +79,6 @@ enum Corner: String, CaseIterable, Sendable {
 /// 付箋の中でテキストを編集している箇所。
 enum Editing: Equatable {
     case northStar
-    case rename(UUID)
-    case add
     /// 付箋の「＋」から控えに北極星を足す。
     case queueStar
 }

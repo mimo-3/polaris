@@ -8,7 +8,7 @@ final class OSSHardeningMCPTests {
     deinit { for home in homes { try? FileManager.default.removeItem(at: home) } }
     private func session(name: String = "test", version: String = "2025-06-18") throws -> (MCPServer, PolarisStore, [String: Any]) {
         let home = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("polaris-test-mcp-tests-\(UUID().uuidString)")
+            .appendingPathComponent("goalonly-mcp-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         homes.append(home)
         let date = Date(timeIntervalSince1970: 1_780_272_000)
@@ -31,15 +31,25 @@ final class OSSHardeningMCPTests {
         return try #require(reply["result"] as? [String: Any])
     }
 
-    @Test func testFailedTaskUpdateKeepsTitleDueDateAndRevision() throws {
+    @Test func testNorthStarWritePreservesLegacyItemsWithoutExposingThem() throws {
         var (server, store, _) = try session()
-        let task = try store.addTask(title: "元の名前", dueDate: "2026-06-20").task
+        _ = try store.addTask(title: "旧いま", to: .now)
+        let finished = try store.addTask(title: "旧完了", to: .now).task
+        _ = try store.completeTask(id: finished.id)
+        _ = try store.addTask(title: "旧あとで", to: .later)
         let before = try store.read()
-
-        let result = try call(&server, name: "polaris_update_task", arguments: ["id": task.id.uuidString, "title": "変えてはいけない", "dueDate": "invalid"])
-
-        #expect(result["isError"] as? Bool == true)
-        #expect(try store.read() == before)
+        let result = try call(&server, name: "polaris_set_north_star", arguments: ["text": "今日の目標"])
+        #expect(result["isError"] as? Bool == false)
+        let after = try store.read()
+        #expect(after.today.now == before.today.now)
+        #expect(after.today.done == before.today.done)
+        #expect(after.later == before.later)
+        #expect(after.schemaVersion == before.schemaVersion)
+        let content = try #require(result["content"] as? [[String: Any]])
+        let text = try #require(content.first?["text"] as? String)
+        let day = try #require(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        #expect(day["northStar"] as? String == "今日の目標")
+        for key in ["now", "done", "later"] { #expect(day[key] == nil) }
     }
 
     @Test func testFailedNorthStarUpdateKeepsTextScheduleAndRevision() throws {
@@ -55,15 +65,11 @@ final class OSSHardeningMCPTests {
 
     @Test func testSuccessfulMultiFieldUpdatesUseOneRevisionEach() throws {
         var (server, store, _) = try session()
-        let task = try store.addTask(title: "元の名前").task
         let star = try store.addNorthStar(text: "元の星")
         let before = try store.read().revision
-        let taskResult = try call(&server, name: "polaris_update_task", arguments: ["id": task.id.uuidString, "title": "新しい名前", "dueDate": "2026-06-20"])
-        #expect(taskResult["isError"] as? Bool == false)
-        #expect(try store.read().revision == before + 1)
         let starResult = try call(&server, name: "polaris_update_north_star", arguments: ["id": star.id.uuidString, "text": "新しい星", "dueDate": "2026-06-20", "startsAt": "2026-06-15T12:00:00Z"])
         #expect(starResult["isError"] as? Bool == false)
-        #expect(try store.read().revision == before + 2)
+        #expect(try store.read().revision == before + 1)
     }
 
     @Test func testMarchProtocolFallsBackToSupportedNonBatchVersion() throws {
@@ -114,7 +120,7 @@ final class OSSHardeningMCPTests {
     @Test func testCombiningScalarBombReturnsToolError() throws {
         var (server, store, _) = try session()
         let before = try store.read()
-        let result = try call(&server, name: "polaris_add_task", arguments: ["title": "x" + String(repeating: "\u{301}", count: 10000)])
+        let result = try call(&server, name: "polaris_add_north_star", arguments: ["text": "x" + String(repeating: "\u{301}", count: 10000)])
         #expect(result["isError"] as? Bool == true)
         #expect(try store.read() == before)
     }
@@ -150,13 +156,13 @@ final class OSSHardeningMCPTests {
 
     @Test func testRelativePolarisHomeIsRejectedByMCPProcess() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let directory = root.appendingPathComponent("polaris-test-relative-\(UUID().uuidString)")
+        let directory = root.appendingPathComponent("goalonly-relative-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         homes.append(directory)
         let process = Process()
         process.executableURL = root.appendingPathComponent(".build/debug/polaris-mcp")
         process.currentDirectoryURL = directory
-        process.environment = ProcessInfo.processInfo.environment.merging(["POLARIS_HOME": "polaris-test-not-absolute"]) { _, new in new }
+        process.environment = ProcessInfo.processInfo.environment.merging(["POLARIS_HOME": "goalonly-not-absolute"]) { _, new in new }
         let input = Pipe()
         let output = Pipe()
         process.standardInput = input
@@ -166,7 +172,7 @@ final class OSSHardeningMCPTests {
         let requests = [
             #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#,
             #"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
-            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"polaris_list_later","arguments":{}}}"#
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"polaris_list_north_stars","arguments":{}}}"#
         ].joined(separator: "\n") + "\n"
         input.fileHandleForWriting.write(Data(requests.utf8))
         try input.fileHandleForWriting.close()
@@ -178,7 +184,7 @@ final class OSSHardeningMCPTests {
         let last = try #require(lines.last)
         let reply = try #require(JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any])
         #expect((reply["result"] as? [String: Any])?["isError"] as? Bool == true)
-        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("polaris-test-not-absolute").path))
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("goalonly-not-absolute").path))
     }
 
 }

@@ -49,8 +49,8 @@ enum PolarisTheme {
     enum Typography {
         static let sheetTitle = Font.system(size: 17, weight: .semibold)
         static let lead = Font.system(size: 15, weight: .semibold)
-        static let taskLead = Font.system(size: 14, weight: .semibold)
-        static let task = Font.system(size: 14, weight: .regular)
+        static let bodyStrong = Font.system(size: 14, weight: .semibold)
+        static let body = Font.system(size: 14, weight: .regular)
         static let voice = Font.system(size: 13, weight: .regular)
         static let voiceEmphasis = Font.system(size: 13, weight: .semibold)
         static let button = Font.system(size: 13, weight: .semibold)
@@ -94,21 +94,11 @@ enum PolarisTheme {
         static let sheetWidth: CGFloat = 400
         static let quickEditWidth: CGFloat = 400
         static let screenInset: CGFloat = 16
-        static let starDot: CGFloat = 8
-        static let starHoverRing: CGFloat = 16
-        static let rippleEnd: CGFloat = 28
         static let hitMin: CGFloat = 24
-        static let rowHit: CGFloat = 28
-        static let rowHeight: CGFloat = 20
-        static let laterRow: CGFloat = 32
-        static let laterMaxRows = 5
-        static let collapsedDayClosedHeight: CGFloat = 44
         /// 透過中に付箋の内側の縁へ重ねるつまみ。左右の余白（20）に収まり、文字まで3空ける。
         static let handleWidth: CGFloat = 14
         static let handleHeight: CGFloat = 48
         static let handleInset: CGFloat = 3
-        /// 点8 + 間隔10。本命テキストの開始位置。
-        static let taskTextInset: CGFloat = 18
     }
 
     enum Material {
@@ -125,26 +115,16 @@ enum PolarisTheme {
         static func expand(_ reduce: Bool) -> Animation {
             reduce ? .easeOut(duration: 0.15) : .spring(response: 0.32, dampingFraction: 0.9)
         }
-        static func expandContent(_ reduce: Bool) -> Animation {
-            reduce ? .easeOut(duration: 0.15) : .easeOut(duration: 0.18).delay(0.06)
-        }
         static func collapse(_ reduce: Bool) -> Animation? {
             reduce ? nil : .spring(response: 0.28, dampingFraction: 1.0)
         }
-        static let checkFill = Animation.easeOut(duration: 0.12)
-        static func strike(_ reduce: Bool) -> Animation? { reduce ? nil : .linear(duration: 0.2) }
-        static func rowExit(_ reduce: Bool) -> Animation {
-            reduce ? .easeOut(duration: 0.15) : .easeIn(duration: 0.22)
-        }
-        static func promote(_ reduce: Bool) -> Animation? {
-            reduce ? nil : .spring(response: 0.4, dampingFraction: 0.9)
-        }
-        static let rippleDuration: Double = 0.9
         static func voiceSwap(_ reduce: Bool) -> Animation {
             reduce ? .easeOut(duration: 0.15) : .easeOut(duration: 0.2)
         }
-        static func count(_ reduce: Bool) -> Animation? { reduce ? nil : .easeOut(duration: 0.2) }
-        static func laterDisclose(_ reduce: Bool) -> Animation? {
+        static func reorder(_ reduce: Bool) -> Animation? {
+            reduce ? nil : .spring(response: 0.4, dampingFraction: 0.9)
+        }
+        static func disclose(_ reduce: Bool) -> Animation? {
             reduce ? nil : .spring(response: 0.3, dampingFraction: 0.9)
         }
         static let snapDuration: Double = 0.22
@@ -155,9 +135,6 @@ enum PolarisTheme {
         }
         static func sheetStep(_ reduce: Bool) -> Animation {
             reduce ? .easeOut(duration: 0.15) : .easeInOut(duration: 0.22)
-        }
-        static func allDone(_ reduce: Bool) -> Animation? {
-            reduce ? nil : .spring(response: 0.3, dampingFraction: 0.9)
         }
         /// 縮めるときに frame を戻すまでの待ち時間（collapse の spring が収まる長さ）。
         static let shrinkSettle: Double = 0.34

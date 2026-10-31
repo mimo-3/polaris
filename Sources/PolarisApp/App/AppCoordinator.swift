@@ -54,7 +54,6 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             self.celebration.burst(from: self.note.panel.frame, reduceMotion: self.model.theme.reduceMotion,
                                    sound: self.model.celebrationSound)
         }
-        model.requestMorning = { [weak self] in self?.showMorning(key: true) }
         model.onDayChanged = { [weak self] in
             guard let self else { return }
             if self.note.isHidden { self.note.show() }
@@ -148,7 +147,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     private func registerHotKeys() {
         let hk = HotKeyCenter.shared
         hk.register(.editNorthStar) { [weak self] in self?.showQuickEdit(.northStar) }
-        hk.register(.addTask) { [weak self] in self?.showQuickEdit(.add) }
+        hk.register(.showStars) { [weak self] in self?.showStars() }
         hk.register(.focusNote) { [weak self] in self?.note.focusForKeyboard() }
         hk.register(.toggleHidden) { [weak self] in self?.note.toggleVisibility() }
         hk.register(.toggleClickThrough) { [weak self] in
@@ -194,7 +193,6 @@ struct BackgroundMenuItems: View {
     var body: some View {
         if let app = NSApp.delegate as? AppCoordinator {
             Button(Copy.editNorthStar) { app.showQuickEdit(.northStar) }
-            Button(Copy.addTask) { app.showQuickEdit(.add) }
             Button(Copy.redoMorning) { app.showMorning(key: true) }
             Button(Copy.starsWindowMenu) { app.showStars() }
             Divider()
