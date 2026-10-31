@@ -51,6 +51,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
         let hidden = app.note.isHidden
         menu.addItem(action(hidden ? Copy.showNote : Copy.hideNote, key: "h") { $0.note.toggleVisibility() })
+        menu.addItem(action(Copy.starsWindowMenu, key: "l") { $0.showStars() })
         menu.addItem(action(Copy.hide15) { $0.note.hide(for: 15) })
         let through = action(Copy.clickThrough, key: "t") { $0.note.setClickThrough(!$0.model.clickThrough) }
         through.state = app.model.clickThrough ? .on : .off
@@ -58,7 +59,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         menu.addItem(action(Copy.editNorthStar, key: "p") { $0.showQuickEdit(.northStar) })
-        menu.addItem(action(Copy.addTask, key: "n") { $0.showQuickEdit(.add) })
         menu.addItem(action(Copy.redoMorning) { $0.showMorning(key: true) })
 
         let modes = NSMenu()
