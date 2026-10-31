@@ -11,12 +11,12 @@ final class HotKeyCenter {
     }
 
     enum Action: UInt32, CaseIterable {
-        case editNorthStar = 1, addTask, focusNote, toggleHidden, toggleClickThrough
+        case editNorthStar = 1, showStars, focusNote, toggleHidden, toggleClickThrough
 
         var title: String {
             switch self {
             case .editNorthStar: "クイック編集（北極星）"
-            case .addTask: "クイック編集（追加）"
+            case .showStars: Copy.starsWindowTitle
             case .focusNote: "付箋を操作する"
             case .toggleHidden: "付箋を隠す / 表示する"
             case .toggleClickThrough: "クリック透過を切り替える"
@@ -27,7 +27,7 @@ final class HotKeyCenter {
             let mods = UInt32(controlKey | optionKey)
             switch self {
             case .editNorthStar: return Binding(keyCode: UInt32(kVK_ANSI_P), modifiers: mods, label: "⌃⌥P")
-            case .addTask: return Binding(keyCode: UInt32(kVK_ANSI_N), modifiers: mods, label: "⌃⌥N")
+            case .showStars: return Binding(keyCode: UInt32(kVK_ANSI_L), modifiers: mods, label: "⌃⌥L")
             case .focusNote: return Binding(keyCode: UInt32(kVK_ANSI_O), modifiers: mods, label: "⌃⌥O")
             case .toggleHidden: return Binding(keyCode: UInt32(kVK_ANSI_H), modifiers: mods, label: "⌃⌥H")
             case .toggleClickThrough: return Binding(keyCode: UInt32(kVK_ANSI_T), modifiers: mods, label: "⌃⌥T")
