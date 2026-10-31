@@ -101,16 +101,16 @@ private struct StarEndActions: ViewModifier {
     @Environment(NoteModel.self) private var model
 
     func body(content: Content) -> some View {
-        if model.today.star == nil {
-            content
-        } else {
+        if let star = model.today.star {
             content
                 .contextMenu {
-                    Button(Copy.starAchieved) { model.endNorthStar() }
-                    Button(Copy.starDrop) { model.endNorthStar(achieved: false) }
+                    Button(Copy.starAchieved) { model.endNorthStar(id: star.id) }
+                    Button(Copy.starDrop) { model.endNorthStar(id: star.id, achieved: false) }
                 }
-                .accessibilityAction(named: Copy.starAchieved) { model.endNorthStar() }
-                .accessibilityAction(named: Copy.starDrop) { model.endNorthStar(achieved: false) }
+                .accessibilityAction(named: Copy.starAchieved) { model.endNorthStar(id: star.id) }
+                .accessibilityAction(named: Copy.starDrop) { model.endNorthStar(id: star.id, achieved: false) }
+        } else {
+            content
         }
     }
 }
@@ -120,8 +120,8 @@ private struct StarActionButton: View {
     @Environment(NoteModel.self) private var model
     var body: some View {
         Group {
-            if model.today.star != nil {
-                Button { model.performStarQueueAction() } label: {
+            if let star = model.today.star {
+                Button { model.endNorthStar(id: star.id) } label: {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 14, height: 16)
