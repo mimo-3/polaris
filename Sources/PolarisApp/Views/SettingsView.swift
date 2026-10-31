@@ -111,7 +111,7 @@ struct SettingsView: View {
                 if index > 0 { Hairline() }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text(action.title).font(PolarisTheme.Typography.task).foregroundStyle(theme.ink)
+                        Text(action.title).font(PolarisTheme.Typography.body).foregroundStyle(theme.ink)
                         Spacer()
                         MetaText(text: action.defaultBinding.label, color: theme.ink)
                     }
@@ -204,7 +204,7 @@ private struct ModeSettings: View {
                     .frame(width: 20)
                     .accessibilityHidden(true)
                 Text(mode.label)
-                    .font(isSelected ? PolarisTheme.Typography.taskLead : PolarisTheme.Typography.task)
+                    .font(isSelected ? PolarisTheme.Typography.bodyStrong : PolarisTheme.Typography.body)
                     .foregroundStyle(theme.ink)
                     .lineLimit(1)
                 Spacer(minLength: S.s)
@@ -233,7 +233,7 @@ private struct ModeSettings: View {
         VStack(alignment: .leading, spacing: S.l) {
             VStack(alignment: .leading, spacing: S.xs) {
                 MetaText(text: Copy.modeName)
-                PolarisTextField(text: $name, prompt: mode.label, font: PolarisTheme.Typography.task,
+                PolarisTextField(text: $name, prompt: mode.label, font: PolarisTheme.Typography.body,
                                  onSubmit: { commitName() })
                     .focused($nameFocused)
                     .onChange(of: name) { _, text in
@@ -246,7 +246,7 @@ private struct ModeSettings: View {
                 MetaText(text: Copy.avoidAppsTitle)
                 if mode.avoidApps.isEmpty {
                     Text(Copy.noAvoid)
-                        .font(PolarisTheme.Typography.task)
+                        .font(PolarisTheme.Typography.body)
                         .foregroundStyle(theme.ink2)
                         .frame(height: 28, alignment: .leading)
                 } else {
@@ -254,7 +254,7 @@ private struct ModeSettings: View {
                         let app = AppNames.name(for: bundleID)
                         HStack(spacing: S.s) {
                             Text(app)
-                                .font(PolarisTheme.Typography.task)
+                                .font(PolarisTheme.Typography.body)
                                 .foregroundStyle(theme.ink)
                                 .lineLimit(1)
                                 .help(bundleID)

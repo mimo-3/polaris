@@ -100,7 +100,7 @@ struct StarsView: View {
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.queueSpace)) }) { rowFrames[star.id] = $0 }
                 .offset(y: rowOffset(star.id, index: index, in: stars, target: target))
                 // ほかの行は落ちる先を空けるように動かす。掴んだ行は指から遅れないよう動かさない。
-                .animation(draggingID == star.id ? nil : PolarisTheme.Motion.promote(theme.reduceMotion), value: target)
+                .animation(draggingID == star.id ? nil : PolarisTheme.Motion.reorder(theme.reduceMotion), value: target)
                 .zIndex(draggingID == star.id ? 1 : 0)
             }
             if !stars.isEmpty { Hairline() }
@@ -157,7 +157,7 @@ struct StarsView: View {
                     // 保存に失敗しても手元の並びを残さない。成功したときは新しい並びが先に届いている。
                     model.moveQueuedNorthStar(star.id, to: to) { order = nil }
                 } else {
-                    withAnimation(PolarisTheme.Motion.promote(theme.reduceMotion)) { draggingID = nil; dragY = 0 }
+                    withAnimation(PolarisTheme.Motion.reorder(theme.reduceMotion)) { draggingID = nil; dragY = 0 }
                 }
             }
     }
@@ -175,7 +175,7 @@ struct StarsView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(star.text)
-                        .font(PolarisTheme.Typography.task)
+                        .font(PolarisTheme.Typography.body)
                         .foregroundStyle(theme.ink)
                         .lineLimit(2)
                         .truncationMode(.tail)
@@ -194,7 +194,7 @@ struct StarsView: View {
             // 掴めるのは見出しの行だけ。開いた期限・予約の欄を触っても並べ替えは始めない。
             .gesture(dragGesture(star, in: displayedQueue))
             .onTapGesture {
-                withAnimation(PolarisTheme.Motion.laterDisclose(theme.reduceMotion)) {
+                withAnimation(PolarisTheme.Motion.disclose(theme.reduceMotion)) {
                     editingID = isEditing ? nil : star.id
                 }
             }
@@ -250,7 +250,7 @@ struct StarsView: View {
 
     private func addField(full: Bool) -> some View {
         HStack(spacing: S.s) {
-            PolarisTextField(text: $draft, prompt: Copy.starsQueuePlaceholder, font: PolarisTheme.Typography.task,
+            PolarisTextField(text: $draft, prompt: Copy.starsQueuePlaceholder, font: PolarisTheme.Typography.body,
                              onSubmit: submit)
                 .frame(height: 20)
                 .focused($fieldFocused)
@@ -320,7 +320,7 @@ struct StarsView: View {
                 if past.count > 1 {
                     Hairline()
                     Button {
-                        withAnimation(PolarisTheme.Motion.laterDisclose(theme.reduceMotion)) { logOpen.toggle() }
+                        withAnimation(PolarisTheme.Motion.disclose(theme.reduceMotion)) { logOpen.toggle() }
                     } label: {
                         HStack(spacing: 4) {
                             Text(logOpen ? Copy.starsLogLess : Copy.starsLogMore(past.count - 1))
@@ -349,7 +349,7 @@ struct StarsView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(star.text)
-                    .font(PolarisTheme.Typography.task)
+                    .font(PolarisTheme.Typography.body)
                     .foregroundStyle(star.outcome == .achieved ? theme.ink : theme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
                 MetaText(text: StarDates.summary(star))
