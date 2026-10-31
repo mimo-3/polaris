@@ -1,7 +1,7 @@
 import Foundation
 
 public enum PolarisVersion {
-    public static let defaultVersion = "1.0.0"
+    public static let defaultVersion = "2.0.0"
 
     /// 同梱 MCP も署名済みアプリのバージョンを使う。単体バイナリは既定値。
     public static var current: String {
