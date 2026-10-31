@@ -18,10 +18,8 @@ final class NoteModel {
     // MARK: 付箋の UI 状態
     var pinned = false
     var hoverOpen = false
-    var laterOpen = false
     var editing: Editing?
     var draft = ""
-    var swapping: UUID?
     /// 閉じた付箋はクリックを後ろへ通す。つまみだけが触れる場所になる。
     var clickThrough: Bool = Prefs.bool("clickThrough", default: true) {
         didSet {
@@ -36,7 +34,6 @@ final class NoteModel {
     var isKey = false
     var keyboardIndex: Int?
     var dragging = false
-    var dayClosedDate: String?
     var hidden = false
 
     /// 付箋がクリックを受け取れる。透過していないか、⌥ を押しているか、つまみで開いている。
@@ -49,12 +46,6 @@ final class NoteModel {
     var celebrates: Bool = Prefs.bool("celebrates", default: true) { didSet { Prefs.set(celebrates, "celebrates") } }
     var celebrationSound: Bool = Prefs.bool("celebrationSound", default: true) { didSet { Prefs.set(celebrationSound, "celebrationSound") } }
 
-    // MARK: 完了の動き
-    var completing: UUID?
-    var completionPhase = 0 // 0: 点 / 1: ✓ / 2: 取り消し線まで
-    var rippleToken = 0
-    /// スナップショット用。波紋の途中を固定して描く。
-    var snapshotRipple: CGFloat?
 
     // MARK: 声の行
     var detour: Detour?
@@ -63,9 +54,7 @@ final class NoteModel {
     var now = Date()
 
     // MARK: ホバー（パネルからポインタ位置を受ける。非アクティブなアプリでも確実に拾うため自前で判定する）
-    var pointer: CGPoint? { didSet { updateHoveredRow(); updateHint() } }
-    var rowFrames: [UUID: CGRect] = [:] { didSet { updateHoveredRow() } }
-    var hoveredRow: UUID?
+    var pointer: CGPoint? { didSet { updateHint() } }
     /// ホバーで案内を出す場所。id ごとに文言と枠を持つ。描き直しを招かないよう観測から外す。
     @ObservationIgnored var hintTargets: [String: (text: String, frame: CGRect)] = [:]
     /// いま出している案内。
@@ -79,7 +68,6 @@ final class NoteModel {
     /// クリックを受け取れるかが変わった。パネルの ignoresMouseEvents を合わせてもらう。
     @ObservationIgnored var interactivityChanged: () -> Void = {}
     @ObservationIgnored var onDayChanged: () -> Void = {}
-    @ObservationIgnored var requestMorning: () -> Void = {}
     @ObservationIgnored var onStateApplied: () -> Void = {}
     /// 北極星を達成したときに、付箋の外へ演出を出す。
     @ObservationIgnored var onCelebrate: () -> Void = {}
@@ -99,7 +87,6 @@ final class NoteModel {
     init(state: AppState, store: PolarisStore?) {
         self.state = state
         self.store = store
-        dayClosedDate = UserDefaults.standard.string(forKey: "dayClosedDate")
     }
 
     static func placeholderState() -> AppState {
@@ -111,29 +98,16 @@ final class NoteModel {
     var mode: Mode { state.today.mode }
     /// 設定で編集したモード一覧。先頭が既定モード。
     var modes: [Mode] { state.availableModes }
-    var lead: Item? { state.today.now.first }
     var expanded: Bool {
         guard interactive else { return false }
-        return pinned || hoverOpen || editing != nil || swapping != nil
+        return pinned || hoverOpen || editing != nil
     }
-    var isDayClosed: Bool { dayClosedDate == state.today.date && !state.today.date.isEmpty }
-    var isAllDone: Bool { state.today.now.isEmpty && !state.today.done.isEmpty }
-    var nowFull: Bool { state.today.now.count >= 3 }
     var visibleBanner: Banner? {
         guard let banner = state.banner, banner != dismissedBanner, banner.expiresAt > now else { return nil }
         return banner
     }
     var voice: Voice {
-        Voice.resolve(detour: detour, transient: transient, banner: visibleBanner, holdBanner: completing != nil)
-    }
-
-    private func updateHoveredRow() {
-        guard !theme.snapshot else { return }
-        guard let pointer, !dragging else { if hoveredRow != nil { hoveredRow = nil }; return }
-        // あとでの行は隙間なく並ぶので、まず枠そのもので当て、外れたら少し広げて当てる。
-        let hit = rowFrames.first { $0.value.contains(pointer) }?.key
-            ?? rowFrames.first { $0.value.insetBy(dx: -8, dy: -4).contains(pointer) }?.key
-        if hit != hoveredRow { hoveredRow = hit }
+        Voice.resolve(detour: detour, transient: transient, banner: visibleBanner)
     }
 
     /// ポインタが止まった場所に案内があれば、少し待ってから出す。重なっていたら小さい枠を優先する。
@@ -220,11 +194,9 @@ final class NoteModel {
         let previous = state
         let firstLoad = state.today.date.isEmpty && !next.today.date.isEmpty
         let dayChanged = next.today.date != state.today.date && !state.today.date.isEmpty
-        let leadChanged = next.today.now.first?.id != state.today.now.first?.id
-        let animation: Animation? = leadChanged ? PolarisTheme.Motion.promote(theme.reduceMotion) : .easeOut(duration: 0.2)
         let newBanner = next.banner != nil && next.banner != state.banner ? next.banner : nil
         let bannerChanged = next.banner != state.banner
-        withAnimation(animation) { state = next }
+        withAnimation(.easeOut(duration: 0.2)) { state = next }
         // 起動・日付の替わり目・MCP の書き込みで、もう時刻の来た予約があれば待たずに上げる（朝の支度より先に）。
         surfaceScheduledStars()
         if bannerChanged { scheduleBannerExpiry() }
@@ -233,11 +205,9 @@ final class NoteModel {
             loadFailed = false
             if case .error(Copy.loadFailed) = transient { clearTransient() }
         }
-        if let swapping, !next.later.contains(where: { $0.id == swapping }) { self.swapping = nil }
-        if case .overflow(let id, _, _) = transient, !next.later.contains(where: { $0.id == id }) { clearTransient() }
         announceExternalChanges(from: previous, to: next, settling: firstLoad || dayChanged)
         if dayChanged {
-            pinned = false; laterOpen = false; editing = nil
+            pinned = false; editing = nil
             onDayChanged()
         } else if firstLoad {
             onDayChanged()
@@ -245,18 +215,10 @@ final class NoteModel {
         onStateApplied()
     }
 
-    /// 付箋の外（MCP）で起きた4件目と、banner に隠れたモード切り替えを声の行で知らせる。
+    /// banner に隠れたモード切り替えを声の行で知らせる。
     /// 起動直後の読み込みと日付が替わった直後（settling）は出さない。古い出来事を今のことのように出さない。
     private func announceExternalChanges(from previous: AppState, to next: AppState, settling: Bool) {
         guard !settling else { return }
-        var undoShowing = false
-        if case .undo = transient { undoShowing = true }
-        if case .starEnded = transient { undoShowing = true }
-        if let event = OverflowNotice.event(from: previous, to: next, now: Date(), settling: settling,
-                                            busy: swapping != nil || undoShowing) {
-            show(.overflow(taskID: event.taskID, title: event.title, client: Copy.clientName(event.source)))
-            return
-        }
         // モード表示が見えているなら行そのものが替わるので、知らせは要らない。
         if next.today.mode.id != previous.today.mode.id, transient == nil, detour == nil, visibleBanner != nil {
             show(.modeChanged(next.today.mode))
@@ -285,7 +247,6 @@ final class NoteModel {
             case .failure(let error):
                 always()
                 // そのあいだに消されたものを操作しただけなら、保存の失敗ではない。
-                if case PolarisError.taskNotFound = error { return }
                 if case PolarisError.northStarNotFound = error { return }
                 self.show(.error(Copy.saveFailed))
             }
@@ -297,9 +258,6 @@ final class NoteModel {
         withAnimation(PolarisTheme.Motion.voiceSwap(theme.reduceMotion)) { transient = t }
         scheduleTransientExpiry(after: t.duration)
         switch t {
-        case .undo(_, _, let title, let next):
-            announce(next.map { "\(title)を完了にした。次の本命は\($0)" } ?? "\(title)を完了にした。", .medium)
-        case .overflow(_, let title, _): announce(Copy.overflow(title), .medium)
         case .modeChanged(let mode): announce(Copy.modeChanged(mode.label), .low)
         case .starEnded(_, let title, let next, let achieved): announce(Copy.starEndedSpoken(title, next: next, achieved: achieved), .medium)
         case .starSurfaced(let title): announce(Copy.starSurfaced(title), .high)
@@ -312,11 +270,6 @@ final class NoteModel {
         transientTimer = _Concurrency.Task { @MainActor [weak self] in
             try? await _Concurrency.Task.sleep(for: .seconds(seconds))
             guard let self, !_Concurrency.Task.isCancelled else { return }
-            // 4件目の知らせはホバー中は消さない。
-            if case .overflow = self.transient, self.pointer != nil || self.swapping != nil {
-                self.scheduleTransientExpiry(after: 1)
-                return
-            }
             self.clearTransient()
         }
     }
@@ -332,7 +285,6 @@ final class NoteModel {
 
     func showDetour(_ detour: Detour) {
         withAnimation(PolarisTheme.Motion.voiceSwap(theme.reduceMotion)) { self.detour = detour }
-        if !theme.reduceMotion { rippleToken += 1 }
         let star = state.today.northStar.isEmpty ? "" : "北極星、\(state.today.northStar)"
         announce("今日は\(detour.mode.label)。\(detour.appName)が前面にある。\(star)", .medium)
         detourTimer?.cancel()
@@ -376,8 +328,7 @@ final class NoteModel {
     func collapseIfLeft() {
         guard expanded, editing == nil, keyboardIndex == nil, !dragging else { return }
         hoverTimer?.cancel()
-        // 入れ替えの途中なら、声の行の「入れ替える行を選ぶ」も一緒に下ろす。
-        cancelSwap()
+
         unpinAll()
         if isKey { resignKey() }
     }
@@ -385,7 +336,6 @@ final class NoteModel {
     func collapseHover() {
         withAnimation(PolarisTheme.Motion.collapse(theme.reduceMotion)) {
             hoverOpen = false
-            if !expanded { laterOpen = false }
         }
         settleIfClosed()
     }
@@ -405,8 +355,7 @@ final class NoteModel {
     func togglePin() {
         if pinned {
             withAnimation(PolarisTheme.Motion.collapse(theme.reduceMotion)) {
-                pinned = false; swapping = nil
-                if !expanded { laterOpen = false }
+                pinned = false
             }
             settleIfClosed()
         } else {
@@ -416,7 +365,7 @@ final class NoteModel {
 
     /// VoiceOver や自動操作から開閉する。ホバーで開いているだけでも「たたむ」で閉じられるようにする。
     func setExpanded(_ open: Bool) {
-        guard !isDayClosed, interactive, open != expanded else { return }
+        guard interactive, open != expanded else { return }
         if open {
             withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { pinned = true }
         } else {
@@ -427,7 +376,7 @@ final class NoteModel {
 
     func unpinAll() {
         withAnimation(PolarisTheme.Motion.collapse(theme.reduceMotion)) {
-            pinned = false; hoverOpen = false; swapping = nil; editing = nil; laterOpen = false
+            pinned = false; hoverOpen = false; editing = nil
         }
         handleOpen = false
         clearHint()
@@ -440,22 +389,11 @@ final class NoteModel {
             unpinAll()
             if isKey { resignKey() }
         } else {
-            guard !isDayClosed else { return }
             handleOpen = true
             withAnimation(PolarisTheme.Motion.expand(theme.reduceMotion)) { pinned = true }
         }
     }
 
-    func toggleLater() {
-        withAnimation(PolarisTheme.Motion.laterDisclose(theme.reduceMotion)) { laterOpen.toggle() }
-    }
-
-    // MARK: 今日はここまで
-    func closeDay() {
-        dayClosedDate = state.today.date
-        UserDefaults.standard.set(dayClosedDate, forKey: "dayClosedDate")
-        unpinAll()
-    }
 }
 
 /// ホバーで出す案内。枠は付箋の座標（NoteCard.space）。
