@@ -2,19 +2,21 @@
 
 [English](README.en.md)
 
-今日いちばん大事なことを画面のいちばん手前に置くmacOSアプリです。北極星を1文に決め、いま取り組むことはnowに最大3件まで、それ以外は「あとで」のlaterに残します。モードは「仕事の日」「読書の日」「休む日」のような1日の過ごし方です。モードごとに避けたいアプリを決めておくと、そのアプリが前面に来たときに付箋が北極星を示します。
+今日いちばん大事なことを画面のいちばん手前に置くmacOSアプリです。北極星を1文に決め、付箋には今日の目標だけを出します。ほかの目標は控えへ入れ、達成すると次が今日の北極星になります。モードは「仕事の日」「読書の日」「休む日」のような1日の過ごし方です。モードごとに避けたいアプリを決めておくと、そのアプリが前面に来たときに付箋が北極星を示します。
 
 MCPサーバーは `polaris-mcp` としてアプリに同梱しています。AIエージェントなどのMCPクライアントから、アプリと同じ状態を読み書きできます。
 
 アプリは全Space・フルスクリーンの上に出る小さな付箋と、メニューバーのアイコンで動きます。ショートカットは次のとおりです。
 
 - ⌃⌥P: 北極星を書き換える
-- ⌃⌥N: タスクを追加する
+- ⌃⌥L: 北極星の一覧を開く
 - ⌃⌥O: 付箋を操作する
 - ⌃⌥H: 隠す
 - ⌃⌥T: クリックを透過する
 
 製品仕様は [docs/product.md](docs/product.md)、画面仕様は [docs/design.md](docs/design.md) にあります。
+
+開いた付箋の北極星の真横にある✓で達成します。期限の下の「北極星の一覧」は控えが空でも表示され、メニューバーや⌃⌥Lからも開けます。右端の＋から控えへ足せます。クイック編集は北極星だけで、⌥⏎なら今日を変えず控えに入れます。
 
 ## ビルド
 
@@ -116,11 +118,8 @@ python3 scripts/polaris-backend-smoke.py
 
 - JSONの日時はISO 8601、日のキーはローカル時刻の `YYYY-MM-DD` です。状態はschemaVersion 2で保存します。
 - `state.lock` をflockでロックし、最新の状態に変更を適用して、一時ファイルからrenameします。実際に状態が変わった書き込みでrevisionが1増えます。初回作成はrevision 1です。
-- 日付が進んだ最初の読み書きで前日を履歴に移し、未完了のnowをlaterの先頭へ戻します。モードは既定のモードに戻り、北極星は空になります。履歴は過去90暦日以内で最大90件です。
+- 日付が進んだ最初の読み書きで前日を履歴に移します。モードは既定に戻り、未達の北極星は控えの先頭に戻ります。朝の支度はモードと北極星の2ステップです。
 - 北極星は今日1つに加え、控え（最大20件）と終わったログを持てます。日付が進むと未完了の北極星は履歴に残しつつ控えの先頭へ戻ります。完了するとログへ移り、控えの先頭があれば今日になります。
-- nowが満杯なら追加・移動先はlater末尾になり、`Placement.overflowed` がtrueになります。positionは0始まりで、リスト長を超える位置は末尾扱いです。
-- laterに入れられるのは200件までで、追加や移動で超える操作はエラーにします。日付の繰り越しなどで200件を超えた分はそのまま残します。
-- 完了したタスクをmoveすると未完了に戻ります。履歴中のタスクは変更しません。
 - bannerはMCPから付箋に一時的に出すメッセージで、1件だけ持ちます。表示は既定5分、最大1440分で、読み書きや監視時に期限切れを除去します。
 - state.jsonは8MBまでです。超えたファイルは壊れたJSONや未対応のschemaVersionと同じくエラーにし、既存データを上書きしません。
 
@@ -128,9 +127,9 @@ python3 scripts/polaris-backend-smoke.py
 
 polaris-mcpは改行区切りJSON-RPC 2.0のstdioサーバーです。標準出力には応答だけを書きます。バッチ要求には対応しません。[MCPのinitializeとツール応答形式](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/schema.mdx)を利用し、2024-11-05と2025-06-18をネゴシエートできます。
 
-20個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_list_north_stars`, `polaris_add_north_star`, `polaris_update_north_star`, `polaris_complete_north_star`, `polaris_switch_north_star`, `polaris_remove_north_star`, `polaris_get_north_star_log`, `polaris_set_mode`, `polaris_list_modes`, `polaris_add_task`, `polaris_update_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, `polaris_list_later`, `polaris_nudge`, `polaris_get_history`。引数の詳細は `tools/list` のinputSchemaで取得できます。
+13個のツールを提供します: `polaris_get_today`, `polaris_set_north_star`, `polaris_list_north_stars`, `polaris_add_north_star`, `polaris_update_north_star`, `polaris_complete_north_star`, `polaris_switch_north_star`, `polaris_remove_north_star`, `polaris_get_north_star_log`, `polaris_set_mode`, `polaris_list_modes`, `polaris_nudge`, `polaris_get_history`。引数の詳細は `tools/list` のinputSchemaで取得できます。
 
-タイトルと北極星は200字、`polaris_nudge` の text は280字までです。字数は書記素とUnicodeスカラーの両方で数え、どちらかが上限を超えるとエラーにします。`polaris_nudge` で出したbannerには差出人として `MCP: <クライアント名>` を表示します。タスクの追加先はlaterが既定です。MCPクライアントには、ユーザーの指示なしにnowを入れ替えさせない運用を想定しています。
+北極星は200字、`polaris_nudge` の text は280字までです。字数は書記素とUnicodeスカラーの両方で数え、どちらかが上限を超えるとエラーにします。`polaris_nudge` で出したbannerには差出人として `MCP: <クライアント名>` を表示します。今日の状態や履歴は、北極星とモードを中心に返します。
 
 ### PolarisCoreで状態の変化を受け取る
 
@@ -141,10 +140,9 @@ import PolarisCore
 
 let store = PolarisStore()
 let state = try store.read()
-let placement = try store.addTask(title: "読む", to: .now)
+let updated = try store.setNorthStar("読む")
 
 // UIのライフサイクルに合わせて購読Taskをキャンセルしてください。
-// PolarisCore.Taskとの名前衝突を避ける場合は _Concurrency.Task と書けます。
 for await change in store.changes() {
     switch change {
     case .success(let state):

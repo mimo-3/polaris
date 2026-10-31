@@ -2,17 +2,19 @@
 
 [日本語](README.md)
 
-Polaris is a macOS app that keeps today's most important work in front of everything else on your screen. You write one North Star sentence, put up to three tasks you are working on now in "now", and leave the rest in "later". A mode describes the kind of day, such as a work day, a reading day, or a rest day. Each mode can list apps to avoid, and when one of them comes to the front, the note points you back to your North Star.
+Polaris is a macOS app that keeps today's most important work in front of everything else on your screen. You write one North Star sentence for today and keep other goals in a queue. Achieving today’s North Star brings the next one forward. A mode describes the kind of day, such as a work day, a reading day, or a rest day. Each mode can list apps to avoid, and when one of them comes to the front, the note points you back to your North Star.
 
 The MCP server ships inside the app as `polaris-mcp`. MCP clients such as AI agents can read and write the same state as the app.
 
 The app runs as a small sticky note that floats above all Spaces and full-screen apps, plus a menu bar icon. Shortcuts:
 
 - ⌃⌥P: edit the North Star
-- ⌃⌥N: add a task
+- ⌃⌥L: open the North Star list
 - ⌃⌥O: interact with the note
 - ⌃⌥H: hide
 - ⌃⌥T: let clicks pass through
+
+The expanded note has an achieve button beside the North Star and an always-visible “北極星の一覧” (North Star list) row below its deadline. The row and the menu bar open the list; the plus button adds a queued goal. Morning setup has two steps: mode, then North Star. Quick edit contains only the North Star; Option-Return queues it without replacing today’s goal.
 
 This is a summary. The Japanese [README.md](README.md) and the specs in [docs/product.md](docs/product.md) and [docs/design.md](docs/design.md) have the full details, all in Japanese.
 
@@ -89,7 +91,7 @@ MIT. See [LICENSE](LICENSE).
 
 `make release` builds a signed and notarized `build/Polaris.dmg` and requires a Developer ID Application identity in `SIGNING_IDENTITY`. `make test` fails when no Swift Testing test passes. `python3 scripts/polaris-backend-smoke.py` runs the built `polaris-mcp` over stdio and updates one state file from several processes. CI runs `swift build`, `make test`, and the smoke test on macOS for pull requests and pushes to `main`.
 
-`polaris-mcp` speaks newline-delimited JSON-RPC 2.0 over stdio. It supports MCP protocol versions `2024-11-05` and `2025-06-18` and does not accept batch requests. It provides 20 tools; call `tools/list` for their input schemas. A banner is a short message an MCP client shows on the note with `polaris_nudge`, and it shows the sender as `MCP: <client name>`.
+`polaris-mcp` speaks newline-delimited JSON-RPC 2.0 over stdio. It supports MCP protocol versions `2024-11-05` and `2025-06-18` and does not accept batch requests. It provides 13 tools; call `tools/list` for their input schemas. A banner is a short message an MCP client shows on the note with `polaris_nudge`, and it shows the sender as `MCP: <client name>`.
 
 `PolarisCore` is a Swift Package library. The app and `polaris-mcp` read and write state through it. `PolarisStore.changes()` yields `Result<State, Error>`: `.success` for the initial state and each new revision, and `.failure` once when the state cannot be read, while it keeps watching.
 
