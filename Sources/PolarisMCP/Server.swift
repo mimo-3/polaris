@@ -86,9 +86,9 @@ public struct MCPServer: Sendable {
             return ["date": s.today.date, "mode": try json(s.today.mode), "northStar": s.today.northStar,
                     "northStarID": s.today.star?.id.uuidString as Any? ?? NSNull(),
                     "northStarQueue": try json(s.queuedStars),
-                    "now": try json(s.today.now), "done": try json(s.today.done), "note": s.today.note as Any? ?? NSNull(),
-                    "laterCount": s.later.count, "banner": try s.banner.map { try json($0) } ?? NSNull(), "revision": s.revision]
-        case "polaris_set_north_star": return try json(store.setNorthStar(a["text"] as! String).today)
+                    "note": s.today.note as Any? ?? NSNull(),
+                    "banner": try s.banner.map { try json($0) } ?? NSNull(), "revision": s.revision]
+        case "polaris_set_north_star": return try dayJSON(store.setNorthStar(a["text"] as! String).today)
         case "polaris_list_north_stars":
             let s = try store.read()
             return ["active": try s.today.star.map { try json($0) } ?? NSNull(),
@@ -112,31 +112,24 @@ public struct MCPServer: Sendable {
             let outcome = (a["outcome"] as? String).flatMap(NorthStarOutcome.init(rawValue:)) ?? .achieved
             let result = try store.completeNorthStar(outcome: outcome)
             return ["completed": try json(result.completed), "next": try result.next.map { try json($0) } ?? NSNull()]
-        case "polaris_switch_north_star": return try json(store.activateNorthStar(id: try uuid(a)).today)
+        case "polaris_switch_north_star": return try dayJSON(store.activateNorthStar(id: try uuid(a)).today)
         case "polaris_remove_north_star": return try json(store.removeNorthStar(id: try uuid(a)).queuedStars)
         case "polaris_get_north_star_log":
             return try json(store.northStarLog(limit: integer(a["limit"]) ?? 30))
         case "polaris_set_mode": return try json(store.setMode(a["mode_id"] as! String).today.mode)
         case "polaris_list_modes": return try json(store.read().availableModes)
-        case "polaris_add_task":
-            return try json(store.addTask(title: a["title"] as! String,
-                                          to: TaskDestination(rawValue: a["to"] as? String ?? "later")!,
-                                          position: integer(a["position"]), source: "mcp:\(clientName)",
-                                          dueDate: a["dueDate"] as? String))
-        case "polaris_update_task":
-            let id = try uuid(a)
-            let dueDate: String?? = a.keys.contains("dueDate")
-                ? .some(try optionalString(a["dueDate"], label: "dueDate")) : .none
-            return try json(store.updateTask(id: id, title: a["title"] as? String, dueDate: dueDate))
-        case "polaris_complete_task": return try json(store.completeTask(id: try uuid(a)).today)
-        case "polaris_move_task": return try json(store.moveTask(id: try uuid(a), to: TaskDestination(rawValue: a["to"] as! String)!, position: integer(a["position"]), actor: "mcp:\(clientName)"))
-        case "polaris_remove_task": return try json(store.removeTask(id: try uuid(a)).today)
-        case "polaris_rename_task": return try json(store.renameTask(id: try uuid(a), title: a["title"] as! String).today)
-        case "polaris_list_later": return try json(store.read().later)
         case "polaris_nudge": return try json(store.nudge(text: a["text"] as! String, from: TextRules.clientName("MCP: \(clientName)"), ttlMinutes: (a["ttl_minutes"] as? NSNumber)?.doubleValue ?? 5).banner)
-        case "polaris_get_history": return try json(store.history(days: integer(a["days"]) ?? 90))
+        case "polaris_get_history": return try store.history(days: integer(a["days"]) ?? 90).map { try dayJSON($0) }
         default: throw PolarisError.invalidInput("未知のツール: \(name)")
         }
+    }
+    /// Core の互換フィールドは MCP には公開しない。
+    private func dayJSON(_ day: Day) throws -> [String: Any] {
+        guard var value = try json(day) as? [String: Any] else {
+            throw PolarisError.invalidState("日ごとの状態を返せない")
+        }
+        for key in ["now", "done", "later"] { value.removeValue(forKey: key) }
+        return value
     }
     private func uuid(_ arguments: [String: Any]) throws -> UUID {
         guard let text = arguments["id"] as? String, let id = UUID(uuidString: text) else { throw PolarisError.invalidInput("idはUUIDです") }
@@ -211,11 +204,8 @@ public struct MCPServer: Sendable {
     }
 
     private static var definitions: [[String: Any]] {
-        let caution = " ユーザーの集中を守る道具なのでnowを勝手に入れ替えない。追加はlaterを既定にする。"
-        let title: [String: Any] = ["type": "string", "minLength": 1, "maxLength": TextRules.titleMax]
+        let caution = " 今日の北極星を1つに絞り、ユーザーの集中を守る道具。"
         let id: [String: Any] = ["type": "string", "format": "uuid"]
-        let destination: [String: Any] = ["type": "string", "enum": ["now", "later"], "default": "later"]
-        let position: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。now満杯ならlater末尾。"]
         let starText: [String: Any] = ["type": "string", "maxLength": TextRules.northStarMax]
         let starPosition: [String: Any] = ["type": "integer", "minimum": 0, "description": "0始まり。省略時は末尾。範囲を超える位置は末尾。"]
         let dueDate: [String: Any] = ["type": "string", "description": "期限。ローカル時刻のyyyy-MM-dd（その日の終わりまで）かyyyy-MM-ddTHH:mm。"]
@@ -226,7 +216,7 @@ public struct MCPServer: Sendable {
             ["name": name, "description": description + caution, "inputSchema": ["type": "object", "properties": properties, "required": required, "additionalProperties": false]]
         }
         return [
-            tool("polaris_get_today", "今日のモード、北極星、now、done、later件数、bannerを取得する。"),
+            tool("polaris_get_today", "今日のモード、北極星、控え、bannerを取得する。"),
             tool("polaris_set_north_star", "今日の北極星の文面を設定する。空文字なら控えの先頭へ戻す。", ["text": starText], ["text"]),
             tool("polaris_list_north_stars", "今日の北極星、控え、終わった件数を取得する。"),
             tool("polaris_add_north_star", "北極星を控えに追加する。最大20件。dueDateはその日までの期限。startsAtを付けるとその日時に自動で今日の北極星へ上がる予約になる。",
@@ -241,15 +231,6 @@ public struct MCPServer: Sendable {
                  ["limit": ["type": "integer", "minimum": 1, "maximum": 500, "default": 30]]),
             tool("polaris_set_mode", "今日のモードを選ぶ。mode_idはpolaris_list_modesのid。", ["mode_id": ["type": "string", "minLength": 1]], ["mode_id"]),
             tool("polaris_list_modes", "設定で編集したモード一覧を取得する。先頭が既定モード。"),
-            tool("polaris_add_task", "タスクを追加する。nowは最大3件。満杯ならlaterへ送りoverflowedで返す。dueDateはその日までの期限。",
-                 ["title": title, "to": destination, "position": position, "dueDate": dueDate], ["title"]),
-            tool("polaris_update_task", "タスクの名前・期限を更新する。キーが無ければ据え置き、dueDateがnullなら消す。",
-                 ["id": id, "title": title, "dueDate": dueDateOrNull], ["id"]),
-            tool("polaris_complete_task", "タスクを完了し本命なら次を繰り上げる。", ["id": id], ["id"]),
-            tool("polaris_move_task", "指定タスクを移動する。doneからの移動は未完了に戻す。", ["id": id, "to": destination, "position": position], ["id", "to"]),
-            tool("polaris_remove_task", "指定タスクを削除する。", ["id": id], ["id"]),
-            tool("polaris_rename_task", "指定タスクの名前だけを変える。idと位置は変わらない。", ["id": id, "title": title], ["id", "title"]),
-            tool("polaris_list_later", "あとでの一覧を取得する。"),
             tool("polaris_nudge", "一時メッセージを1件表示し以前のメッセージを置換する。", ["text": ["type": "string", "minLength": 1, "maxLength": TextRules.bannerMax], "ttl_minutes": ["type": "number", "exclusiveMinimum": 0, "maximum": 1440, "default": 5]], ["text"]),
             tool("polaris_get_history", "直近90日以内から最大days件の履歴を古い順に取得する。", ["days": ["type": "integer", "minimum": 1, "maximum": 90, "default": 90]])
         ]
