@@ -18,6 +18,10 @@ The expanded note has an achieve button beside the North Star and an always-visi
 
 This is a summary. The Japanese [README.md](README.md) and the specs in [docs/product.md](docs/product.md) and [docs/design.md](docs/design.md) have the full details, all in Japanese.
 
+## Changes in 2.0
+
+Task management has been removed; Polaris now focuses on North Stars. The MCP tools `polaris_add_task`, `polaris_update_task`, `polaris_complete_task`, `polaris_move_task`, `polaris_remove_task`, `polaris_rename_task`, and `polaris_list_later` have been removed. Responses from `polaris_get_today` and related tools no longer include `now`, `done`, or `later`. Existing MCP integrations need updating. Saved task data is retained.
+
 ## Build
 
 You need macOS 14 or later and Swift 6 from the Command Line Tools or Xcode. There are no external packages and no Xcode project.

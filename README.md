@@ -18,6 +18,10 @@ MCPサーバーは `polaris-mcp` としてアプリに同梱しています。AI
 
 開いた付箋の北極星の真横にある✓で達成します。期限の下の「北極星の一覧」は控えが空でも表示され、メニューバーや⌃⌥Lからも開けます。右端の＋から控えへ足せます。クイック編集は北極星だけで、⌥⏎なら今日を変えず控えに入れます。
 
+## 2.0 の変更点
+
+タスク機能を廃止し、北極星だけを扱うようになりました。MCPの `polaris_add_task`、`polaris_update_task`、`polaris_complete_task`、`polaris_move_task`、`polaris_remove_task`、`polaris_rename_task`、`polaris_list_later` を削除し、`polaris_get_today` などの応答から `now`・`done`・`later` を除きました。既存のMCP連携は更新が必要です。保存済みのタスクデータは削除せず残ります。
+
 ## ビルド
 
 macOS 14以上とSwift 6対応のCommand Line ToolsかXcodeが必要です。外部パッケージやXcodeプロジェクトは使いません。
