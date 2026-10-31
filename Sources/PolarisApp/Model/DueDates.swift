@@ -55,11 +55,6 @@ enum DueDates {
         return hasTime(due) ? "\(date.formatted(short)) \(date.formatted(clock))" : date.formatted(short)
     }
 
-    /// タスクの行の右に出す短い表記。残りだけを出す。
-    static func taskLabel(_ due: String, now: Date = Date()) -> (text: String, overdue: Bool)? {
-        remaining(due, now: now)
-    }
-
     /// 北極星の期限。「10/5 18:00まで・あと4日」。
     static func starLabel(_ due: String, now: Date = Date()) -> (text: String, overdue: Bool)? {
         guard let left = remaining(due, now: now), let when = whenText(due) else { return nil }
@@ -69,36 +64,6 @@ enum DueDates {
     /// 予約の日時。「10/3 9:00に浮上」。
     static func surfaceLabel(_ date: Date) -> String {
         "\(date.formatted(.dateTime.month(.defaultDigits).day().hour().minute()))に今日の北極星へ"
-    }
-
-    /// タスクの期限メニューに並べる候補。時間で区切るものと、日で区切るもの。
-    static func presets(now: Date = Date(), calendar: Calendar = .current) -> [(label: String, value: String)] {
-        let today = calendar.startOfDay(for: now)
-        func add(_ days: Int) -> Date { calendar.date(byAdding: .day, value: days, to: today) ?? today }
-        func hoursLater(_ hours: Int) -> Date {
-            // 5分刻みに切り上げて、半端な時刻にしない。
-            let raw = now.addingTimeInterval(Double(hours) * 3600)
-            let step = 300.0
-            return Date(timeIntervalSinceReferenceDate: (raw.timeIntervalSinceReferenceDate / step).rounded(.up) * step)
-        }
-        var items: [(String, String)] = []
-        for hours in [1, 3] {
-            let at = hoursLater(hours)
-            items.append(("\(hours)時間後（\(at.formatted(clock))）", string(dateTime: at)))
-        }
-        items.append(("今日中", string(today)))
-        if let morning = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: add(1)) {
-            items.append(("明日の朝（9:00）", string(dateTime: morning)))
-        }
-        items.append(("明日中", string(add(1))))
-        // weekday: 日=1 … 土=7
-        let weekday = calendar.component(.weekday, from: today)
-        let toFriday = (6 - weekday + 7) % 7
-        let toMonday = (2 - weekday + 7) % 7 == 0 ? 7 : (2 - weekday + 7) % 7
-        if toFriday > 1 { items.append(("今週の金曜（\(add(toFriday).formatted(short))）", string(add(toFriday)))) }
-        items.append(("来週の月曜（\(add(toMonday).formatted(short))）", string(add(toMonday))))
-        items.append(("1週間後（\(add(7).formatted(short))）", string(add(7))))
-        return items
     }
 
     /// 北極星の期限を決めるときの最初の候補。1週間後の 18:00。
