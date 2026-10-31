@@ -90,7 +90,7 @@ MIT. See [LICENSE](LICENSE).
 |---|---|
 | `SIGNING_IDENTITY` | ad-hoc signature |
 | `BUNDLE_IDENTIFIER` | `dev.mimo.polaris` |
-| `VERSION` | `1.0.0` |
+| `VERSION` | `2.0.0` |
 | `BUILD_NUMBER` | `git rev-list --count HEAD`, or `1` if that fails |
 
 `make release` builds a signed and notarized `build/Polaris.dmg` and requires a Developer ID Application identity in `SIGNING_IDENTITY`. `make test` fails when no Swift Testing test passes. `python3 scripts/polaris-backend-smoke.py` runs the built `polaris-mcp` over stdio and updates one state file from several processes. CI runs `swift build`, `make test`, and the smoke test on macOS for pull requests and pushes to `main`.

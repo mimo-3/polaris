@@ -92,10 +92,10 @@ MITライセンスです。全文は [LICENSE](LICENSE) にあります。
 |---|---|
 | `SIGNING_IDENTITY` | アドホック署名 |
 | `BUNDLE_IDENTIFIER` | `dev.mimo.polaris` |
-| `VERSION` | `1.0.0` |
+| `VERSION` | `2.0.0` |
 | `BUILD_NUMBER` | `git rev-list --count HEAD` の値。取れなければ `1` |
 
-アプリに同梱したpolaris-mcpはアプリのInfo.plistにあるバージョンを名乗ります。単体でビルドしたpolaris-mcpは、ライブラリのPolarisCoreにある既定値の1.0.0を名乗ります。
+アプリに同梱したpolaris-mcpはアプリのInfo.plistにあるバージョンを名乗ります。単体でビルドしたpolaris-mcpは、ライブラリのPolarisCoreにある既定値の2.0.0を名乗ります。
 
 `make release` は `make app` のあと `build/Polaris.dmg` を作り、署名・公証・ステープルまで行います。`SIGNING_IDENTITY` にDeveloper ID Applicationの署名IDがないと失敗します。公証にはApp Store Connect APIキーで作ったキーチェーンプロファイルを使います。プロファイル名は `NOTARY_PROFILE` で変えられ、既定は `polaris-notary` です。
 
