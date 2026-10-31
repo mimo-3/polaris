@@ -60,7 +60,6 @@ enum SnapshotRenderer {
         theme.increaseContrast = variant.contrast
         let model = NoteModel(state: scenario.state(mode), store: nil)
         model.theme = theme
-        model.dayClosedDate = nil
         // 既定は透過だが、多くの場面は開いた付箋を描くので、透過は場面ごとに入れる。
         model.clickThrough = false
         scenario.configure(model)
@@ -135,53 +134,25 @@ enum SnapshotRenderer {
         Scenario(name: "collapsed-2line", build: { _ in card() }),
         Scenario(name: "expanded", variants: [light, dark, hcLight, hcDark], build: { _ in card() }, configure: { m in
             m.pinned = true
-            m.hoveredRow = m.today.now.first?.id
-        }),
-        Scenario(name: "later-open", build: { _ in card() }, configure: { m in
-            m.pinned = true
-            m.laterOpen = true
         }),
         Scenario(name: "empty-northstar", build: { _ in card() },
-                 state: { _ in Fixtures.state(northStar: "", now: [], done: []) }),
-        Scenario(name: "empty-now", build: { _ in card() },
-                 state: { _ in Fixtures.state(now: [], done: []) }),
-        Scenario(name: "empty-northstar-with-now", build: { _ in card() },
                  state: { _ in Fixtures.state(northStar: "") }),
-        Scenario(name: "collapsed-dwc", build: { _ in card() }, configure: { m in
-            m.theme.differentiateWithoutColor = true
-        }),
-        Scenario(name: "later-empty", build: { _ in card() }, configure: { m in m.pinned = true },
-                 state: { _ in Fixtures.state(later: []) }),
-        Scenario(name: "later-keyboard", build: { _ in card() }, configure: { m in
-            m.pinned = true
-            m.laterOpen = true
-            m.isKey = true
-            m.keyboardIndex = m.focusOrder.firstIndex(of: .laterRow(Fixtures.later[1].id))
-        }, state: { _ in Fixtures.state(now: Array(Fixtures.work.prefix(2))) }),
+        Scenario(name: "empty-expanded", build: { _ in card() }, configure: { $0.pinned = true },
+                 state: { _ in Fixtures.state(northStar: "") }),
+        Scenario(name: "queue-without-today", build: { _ in card() }, configure: { $0.pinned = true },
+                 state: { _ in Fixtures.withStars(Fixtures.state(northStar: "")) }),
         Scenario(name: "morning-1", variants: [light, dark, hcLight, hcDark], build: { m in
             AnyView(MorningSheetView(state: m.state, step: 1, close: {}))
-        }, state: { _ in Fixtures.state(northStar: "", now: [], done: [], history: [Fixtures.yesterday]) }),
+        }, state: { _ in Fixtures.state(northStar: "", history: [Fixtures.yesterday]) }),
         Scenario(name: "morning-2", build: { m in
             AnyView(MorningSheetView(state: m.state, step: 2, close: {}))
-        }, state: { _ in Fixtures.state(northStar: "", now: [], done: [], history: [Fixtures.yesterday]) }),
+        }, state: { _ in Fixtures.state(northStar: "", history: [Fixtures.yesterday]) }),
         Scenario(name: "morning-2-filled", build: { m in
             AnyView(MorningSheetView(state: m.state, step: 2, close: {}))
-        }, state: { _ in Fixtures.state(northStar: Fixtures.shortStar, now: [], done: [], history: [Fixtures.yesterday]) }),
-        Scenario(name: "morning-3", build: { m in
-            AnyView(MorningSheetView(state: m.state, step: 3, selected: [Fixtures.work[0].id, Fixtures.later[1].id], close: {}))
-        }, state: { _ in
-            Fixtures.state(northStar: Fixtures.longStar, now: [], done: [],
-                           later: [Fixtures.work[0]] + Fixtures.later, history: [Fixtures.yesterday])
-        }),
-        Scenario(name: "completing", build: { _ in card() }, configure: { m in
-            m.pinned = true
-            m.completing = m.today.now.first?.id
-            m.completionPhase = 2
-        }),
+        }, state: { _ in Fixtures.state(northStar: Fixtures.shortStar, history: [Fixtures.yesterday]) }),
         Scenario(name: "detour", mode: "reading", variants: [light, dark, hcLight, hcDark], extraModes: ["rest"],
                  build: { _ in card() }, configure: { m in
             m.detour = Detour(bundleID: "com.tinyspeck.slackmacgap", appName: "Slack", pid: 0, mode: m.mode)
-            m.snapshotRipple = 0.45
         }),
         Scenario(name: "detour-keyboard", mode: "reading", build: { _ in card() }, configure: { m in
             m.detour = Detour(bundleID: "com.anthropic.claudefordesktop", appName: "Claude", pid: 0, mode: m.mode)
@@ -193,12 +164,12 @@ enum SnapshotRenderer {
         }),
         Scenario(name: "banner", build: { _ in card() }, state: { _ in
             Fixtures.state(northStar: Fixtures.shortStar,
-                           banner: Banner(text: "PR終わったよ、本命に戻ろう", from: "claude-code",
+                           banner: Banner(text: "PR終わったよ、北極星に戻ろう", from: "claude-code",
                                           expiresAt: Date().addingTimeInterval(3600)))
         }),
         Scenario(name: "banner-expanded", build: { _ in card() }, configure: { m in m.pinned = true }, state: { _ in
             Fixtures.state(northStar: Fixtures.shortStar,
-                           banner: Banner(text: "PR #128 のレビューが通った。マージは任せて、本命のレビュー指摘に戻ろう",
+                           banner: Banner(text: "PR #128 のレビューが通った。マージは任せて、北極星に戻ろう",
                                           from: "claude-code", expiresAt: Date().addingTimeInterval(3600)))
         }),
         // banner 表示中にモードを替えた直後。apply を通して、知らせが出る経路ごと確かめる。
@@ -209,7 +180,7 @@ enum SnapshotRenderer {
             m.apply(next)
         }, state: { _ in
             Fixtures.state(northStar: Fixtures.shortStar,
-                           banner: Banner(text: "PR終わったよ、本命に戻ろう", from: "claude-code",
+                           banner: Banner(text: "PR終わったよ、北極星に戻ろう", from: "claude-code",
                                           expiresAt: Date().addingTimeInterval(3600)))
         }),
         // 透過中の付箋と、画面中央側の縁の内側に重ねるつまみ。
@@ -233,40 +204,6 @@ enum SnapshotRenderer {
             m.pinned = true
             m.hint = NoteHint(text: Hint.settings, frame: CGRect(x: 268, y: 290, width: 20, height: 20))
         }),
-        Scenario(name: "overflow-to-later", build: { _ in card() }, configure: { m in
-            m.transient = .overflow(taskID: Fixtures.later[0].id, title: "議事録を整える", client: nil)
-        }),
-        Scenario(name: "overflow-mcp", build: { _ in card() }, configure: { m in
-            m.transient = .overflow(taskID: Fixtures.later[1].id, title: "オンボーディング資料の図を差し替える",
-                                    client: "Claude Code")
-        }),
-        // MCP が4件目を足して溢れた記録を受け取ったとき（lastOverflow 経由）。
-        Scenario(name: "overflow-mcp-live", build: { _ in card() }, configure: { m in
-            var next = m.state
-            next.lastOverflow = OverflowEvent(taskID: Fixtures.later[1].id, title: Fixtures.later[1].title,
-                                              source: "mcp:claude-code", at: Date())
-            next.revision += 1
-            m.apply(next)
-        }),
-        Scenario(name: "overflow-swap", build: { _ in card() }, configure: { m in
-            m.transient = .overflow(taskID: Fixtures.later[0].id, title: "議事録を整える", client: nil)
-            m.swapping = Fixtures.later[0].id
-            m.pinned = true
-        }),
-        Scenario(name: "undo", build: { _ in card() }, configure: { m in
-            m.transient = .undo(taskID: Fixtures.done[1].id, index: 0, title: "PRをマージ", next: nil)
-        }),
-        Scenario(name: "undo-long", build: { _ in card() }, configure: { m in
-            m.transient = .undo(taskID: Fixtures.done[1].id, index: 0,
-                                title: "決済APIのリトライ設定を本番の値に合わせて見直す", next: nil)
-        }),
-        Scenario(name: "all-done", build: { _ in card() },
-                 state: { _ in Fixtures.state(now: [], done: Fixtures.done + [Fixtures.completed(Fixtures.task(22, "レビュー指摘を直す"))]) }),
-        Scenario(name: "all-done-expanded", build: { _ in card() },
-                 configure: { m in m.pinned = true },
-                 state: { _ in Fixtures.state(now: [], done: Fixtures.done + [Fixtures.completed(Fixtures.task(22, "レビュー指摘を直す"))]) }),
-        Scenario(name: "day-closed", build: { _ in card() }, configure: { m in m.dayClosedDate = Fixtures.date },
-                 state: { _ in Fixtures.state(now: [], done: Fixtures.done) }),
         Scenario(name: "settings", build: { _ in
             AnyView(SettingsView(conflicts: [.toggleClickThrough]).background(PolarisTheme.Palette.surface))
         }),
@@ -283,8 +220,8 @@ enum SnapshotRenderer {
             return state
         }),
         Scenario(name: "quick-edit", build: { m in
-            AnyView(QuickEditView(state: m.state, focus: .add, close: {}))
-        }, state: { _ in Fixtures.state(now: Array(Fixtures.work.prefix(2))) }),
+            AnyView(QuickEditView(state: m.state, focus: .northStar, close: {}))
+        }, state: { _ in Fixtures.state() }),
         Scenario(name: "expanded-star-queue", build: { _ in card() }, configure: { m in
             m.pinned = true
         }, state: { _ in Fixtures.withStars(Fixtures.state()) }),
